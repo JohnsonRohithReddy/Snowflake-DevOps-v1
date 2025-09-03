@@ -46,12 +46,12 @@ jobs:
 
           # Build matrix as an array of objects and wrap in include
           MATRIX_JSON=$(python - <<EOF
-import json
-schemas = json.loads('''$SCHEMAS''')
-matrix = [{"name": s, "migrations_path": f"./{s}/migrations"} for s in schemas]
-print(json.dumps({"include": matrix}))
-EOF
-)
+          import json
+          schemas = json.loads('''$SCHEMAS''')
+          matrix = [{"name": s, "migrations_path": f"./{s}/migrations"} for s in schemas]
+          print(json.dumps({"include": matrix}))
+          EOF
+          )
 
           # Debug: log raw JSON matrix
           echo "Matrix JSON (raw): $MATRIX_JSON"
