@@ -25,18 +25,31 @@ jobs:
       - name: Install PyYAML
         run: pip install pyyaml
 
+      - name: Debug working directory
+        run: |
+          echo "Current directory:"
+          pwd
+          echo "Files in config/"
+          ls -l config
+
       - name: Generate schema matrix
         id: set-matrix
+        working-directory: ${{ github.workspace }}
         run: |
           SCHEMAS=$(python config/get_schemas.py)
-          # Build matrix JSON manually
+          echo "Schemas from script: $SCHEMAS"
+          if [ -z "$SCHEMAS" ]; then
+            echo "❌ No schemas found. Exiting."
+            exit 1
+          fi
+
           MATRIX_JSON=$(python - <<EOF
-          import json, sys
-          schemas = json.loads('''$SCHEMAS''')
-          matrix = {"include": [{"name": s, "migrations_path": f"./{s}/migrations"} for s in schemas]}
-          print(json.dumps(matrix))
-          EOF
-          )
+import json
+schemas = json.loads('''$SCHEMAS''')
+matrix = {"include": [{"name": s, "migrations_path": f"./{s}/migrations"} for s in schemas]}
+print(json.dumps(matrix))
+EOF
+)
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
 
       - name: Select environment based on branch
@@ -49,9 +62,8 @@ jobs:
           elif [[ "${GITHUB_REF_NAME}" == "main" ]]; then
             echo "environment=sf_prod_credentials_env" >> $GITHUB_OUTPUT
           else
-            echo "Unsupported branch: ${GITHUB_REF_NAME}" >&2
+            echo "❌ Unsupported branch: ${GITHUB_REF_NAME}" >&2
             exit 1
-          fi
 
   deploy:
     needs: generate-matrix
@@ -95,7 +107,7 @@ jobs:
           warehouse = "${{ secrets.SF_WAREHOUSE }}"
           database  = "${{ secrets.SF_DATABASE }}"
           EOF
-          echo "connections.toml created"
+          echo "✅ connections.toml created"
 
       - name: Set Snowflake environment variables
         run: |
@@ -105,7 +117,7 @@ jobs:
           echo "SF_ROLE=${{ secrets.SF_ROLE }}" >> $GITHUB_ENV
           echo "SF_WAREHOUSE=${{ secrets.SF_WAREHOUSE }}" >> $GITHUB_ENV
           echo "SF_DATABASE=${{ secrets.SF_DATABASE }}" >> $GITHUB_ENV
-          echo "Snowflake environment variables set"
+          echo "✅ Snowflake environment variables set"
 
       - name: Parse schema-specific variables
         id: parse-vars
