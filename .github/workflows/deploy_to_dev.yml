@@ -43,13 +43,14 @@ jobs:
             exit 1
           fi
 
+          # Build matrix as an array of objects
           MATRIX_JSON=$(python - <<EOF
-          import json
-          schemas = json.loads('''$SCHEMAS''')
-          matrix = {"include": [{"name": s, "migrations_path": f"./{s}/migrations"} for s in schemas]}
-          print(json.dumps(matrix))
-          EOF
-          )
+import json
+schemas = json.loads('''$SCHEMAS''')
+matrix = [{"name": s, "migrations_path": f"./{s}/migrations"} for s in schemas]
+print(json.dumps(matrix))
+EOF
+)
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
 
       - name: Select environment based on branch
@@ -70,7 +71,7 @@ jobs:
     needs: generate-matrix
     runs-on: ubuntu-latest
     strategy:
-      matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix).include }}
+      matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
     environment: ${{ needs.generate-matrix.outputs.environment }}
 
     steps:
