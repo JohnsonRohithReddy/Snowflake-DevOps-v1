@@ -5,8 +5,10 @@ import json
 
 def get_schemas():
     schemas_yml = os.path.join(os.path.dirname(__file__), "schemas.yml")
-    print(f"Current directory: {os.getcwd()}")  # Debug on separate line
-    print(f"Looking for: {schemas_yml}")      # Debug on separate line
+    # ✅ send debug to stderr, not stdout
+    print(f"Current directory: {os.getcwd()}", file=sys.stderr)
+    print(f"Looking for: {schemas_yml}", file=sys.stderr)
+
     try:
         with open(schemas_yml, 'r') as file:
             data = yaml.safe_load(file)
@@ -24,4 +26,5 @@ def get_schemas():
 
 if __name__ == "__main__":
     schemas = get_schemas()
-    print(json.dumps(schemas)) # Print each schema on a new line
+    # ✅ only JSON goes to stdout
+    print(json.dumps(schemas))
