@@ -22,4 +22,5 @@ def get_schemas():
 
 if __name__ == "__main__":
     schemas = get_schemas()
+    print("printing schemas")
     print(json.dumps(schemas))  # Output schemas as JSON
