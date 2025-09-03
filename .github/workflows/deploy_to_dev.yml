@@ -37,20 +37,30 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: |
           SCHEMAS=$(python config/get_schemas.py)
-          echo "Schemas from script: $SCHEMAS"
+          echo "Schemas from get_schemas.py: $SCHEMAS"
+
           if [ -z "$SCHEMAS" ]; then
             echo "❌ No schemas found. Exiting."
             exit 1
           fi
 
-          # Build matrix as an array of objects
+          # Build matrix as an array of objects and wrap in include
           MATRIX_JSON=$(python - <<EOF
-          import json
-          schemas = json.loads('''$SCHEMAS''')
-          matrix = [{"name": s, "migrations_path": f"./{s}/migrations"} for s in schemas]
-          print(json.dumps(matrix))
-          EOF
-          )
+import json
+schemas = json.loads('''$SCHEMAS''')
+matrix = [{"name": s, "migrations_path": f"./{s}/migrations"} for s in schemas]
+print(json.dumps({"include": matrix}))
+EOF
+)
+
+          # Debug: log raw JSON matrix
+          echo "Matrix JSON (raw): $MATRIX_JSON"
+
+          # Debug: log each matrix entry separately
+          echo "Matrix entries:"
+          echo "$MATRIX_JSON" | python -c "import sys, json; [print(i) for i in json.loads(sys.stdin.read())['include']]"
+
+          # Set matrix for workflow
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
 
       - name: Select environment based on branch
