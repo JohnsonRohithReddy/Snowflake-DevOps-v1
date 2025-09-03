@@ -1,6 +1,7 @@
 import yaml
 import sys
 import os
+import json
 
 def get_schemas():
     schemas_yml = os.path.join(os.path.dirname(__file__), "schemas.yml")
@@ -23,5 +24,4 @@ def get_schemas():
 
 if __name__ == "__main__":
     schemas = get_schemas()
-    for schema in schemas:
-        print(schema)  # Print each schema on a new line
+    print(json.dumps(schemas)) # Print each schema on a new line
