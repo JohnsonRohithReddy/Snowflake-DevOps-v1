@@ -29,8 +29,15 @@ jobs:
         id: set-matrix
         run: |
           SCHEMAS=$(python config/get_schemas.py)
-          MATRIX_JSON=$(echo "$SCHEMAS" | jq -c '[.[] | {name: ., migrations_path: "./" + . + "/migrations"}]')
-          echo "matrix={\"include\": $MATRIX_JSON}" >> $GITHUB_OUTPUT
+          # Build matrix JSON manually
+          MATRIX_JSON=$(python - <<EOF
+import json, sys
+schemas = json.loads('''$SCHEMAS''')
+matrix = {"include": [{"name": s, "migrations_path": f"./{s}/migrations"} for s in schemas]}
+print(json.dumps(matrix))
+EOF
+)
+          echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
 
       - name: Select environment based on branch
         id: set-env
@@ -50,7 +57,7 @@ jobs:
     needs: generate-matrix
     runs-on: ubuntu-latest
     strategy:
-      matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix).include }}
     environment: ${{ needs.generate-matrix.outputs.environment }}
 
     steps:
@@ -62,7 +69,7 @@ jobs:
           python-version: "3.10"
 
       - name: Install dependencies
-        run: pip install pyyaml schemachange jq
+        run: pip install pyyaml schemachange
 
       - name: Print environment details
         run: |
