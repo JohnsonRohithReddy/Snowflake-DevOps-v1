@@ -1,0 +1,118 @@
+name: Deploy Schemas
+
+on:
+  push:
+    branches:
+      - dev
+      - test
+      - main
+  workflow_dispatch:
+
+jobs:
+  generate-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      environment: ${{ steps.set-env.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Generate schema matrix
+        id: set-matrix
+        run: |
+          SCHEMAS=$(python config/get_schemas.py)
+          MATRIX_JSON=$(echo "$SCHEMAS" | jq -c '[.[] | {name: ., migrations_path: "./" + . + "/migrations"}]')
+          echo "matrix={\"include\": $MATRIX_JSON}" >> $GITHUB_OUTPUT
+
+      - name: Select environment based on branch
+        id: set-env
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
+            echo "environment=sf_dev_credentials_env" >> $GITHUB_OUTPUT
+          elif [[ "${GITHUB_REF_NAME}" == "test" ]]; then
+            echo "environment=sf_test_credentials_env" >> $GITHUB_OUTPUT
+          elif [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            echo "environment=sf_prod_credentials_env" >> $GITHUB_OUTPUT
+          else
+            echo "Unsupported branch: ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+
+  deploy:
+    needs: generate-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
+    environment: ${{ needs.generate-matrix.outputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install pyyaml schemachange jq
+
+      - name: Print environment details
+        run: |
+          echo "🚀 Deploying schema: ${{ matrix.name }}"
+          echo "Migrations path: ${{ matrix.migrations_path }}"
+          echo "--- Snowflake environment ---"
+          echo "SF_ACCOUNT=${{ secrets.SF_ACCOUNT }}"
+          echo "SF_USERNAME=${{ secrets.SF_USERNAME }}"
+          echo "SF_ROLE=${{ secrets.SF_ROLE }}"
+          echo "SF_WAREHOUSE=${{ secrets.SF_WAREHOUSE }}"
+          echo "SF_DATABASE=${{ secrets.SF_DATABASE }}"
+          echo "SF_PASSWORD=******** (masked)"
+
+      - name: Create connections.toml
+        run: |
+          mkdir -p config
+          cat > config/connections.toml <<EOF
+          [connections]
+          account   = "${{ secrets.SF_ACCOUNT }}"
+          user      = "${{ secrets.SF_USERNAME }}"
+          password  = "${{ secrets.SF_PASSWORD }}"
+          role      = "${{ secrets.SF_ROLE }}"
+          warehouse = "${{ secrets.SF_WAREHOUSE }}"
+          database  = "${{ secrets.SF_DATABASE }}"
+          EOF
+          echo "connections.toml created"
+
+      - name: Set Snowflake environment variables
+        run: |
+          echo "SF_ACCOUNT=${{ secrets.SF_ACCOUNT }}" >> $GITHUB_ENV
+          echo "SF_USERNAME=${{ secrets.SF_USERNAME }}" >> $GITHUB_ENV
+          echo "SF_PASSWORD=${{ secrets.SF_PASSWORD }}" >> $GITHUB_ENV
+          echo "SF_ROLE=${{ secrets.SF_ROLE }}" >> $GITHUB_ENV
+          echo "SF_WAREHOUSE=${{ secrets.SF_WAREHOUSE }}" >> $GITHUB_ENV
+          echo "SF_DATABASE=${{ secrets.SF_DATABASE }}" >> $GITHUB_ENV
+          echo "Snowflake environment variables set"
+
+      - name: Parse schema-specific variables
+        id: parse-vars
+        run: |
+          VAR_FILE="${{ matrix.migrations_path }}/${{ matrix.name }}-var.yml"
+          VARS_JSON=$(python parse_vars.py "$VAR_FILE")
+          echo "VARS_JSON=$VARS_JSON" >> $GITHUB_ENV
+          echo "Parsed variables: $VARS_JSON"
+
+      - name: Run schemachange deploy
+        run: |
+          schemachange deploy \
+            --config-folder "${{ matrix.migrations_path }}/config" \
+            --vars "$VARS_JSON" \
+            --connections-file-path config/connections.toml \
+            --connection-name connections \
+            --verbose

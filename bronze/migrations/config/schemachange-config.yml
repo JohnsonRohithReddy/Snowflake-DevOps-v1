@@ -1,0 +1,6 @@
+config-version: 1.0
+root-folder: scripts
+vars:
+  database_name: {{ env_var('SF_DATABASE') }}
+create-change-history-table: true
+query-tag: 'SCHEMACHANGE_DEPLOY_BRONZE'
