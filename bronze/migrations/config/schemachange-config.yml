@@ -1,5 +1,5 @@
 config-version: 1.0
-root-folder: scripts
+root-folder: bronze/migrations/scripts
 vars:
   database_name: {{ env_var('SF_DATABASE') }}
 create-change-history-table: true
