@@ -36,10 +36,10 @@ jobs:
         id: set-matrix
         working-directory: ${{ github.workspace }}
         run: |
-          SCHEMAS=$(python config/get_schemas.py)
-          echo "Schemas from get_schemas.py: $SCHEMAS"
+          CONTROLLERS=$(python config/get_controller.py)
+          echo "Schemas from get_controller.py: $CONTROLLERS"
 
-          if [ -z "$SCHEMAS" ]; then
+          if [ -z "$CONTROLLERS" ]; then
             echo "❌ No schemas found. Exiting."
             exit 1
           fi
@@ -47,8 +47,8 @@ jobs:
           # Build matrix as an array of objects and wrap in include
           MATRIX_JSON=$(python - <<EOF
           import json
-          schemas = json.loads('''$SCHEMAS''')
-          matrix = [{"name": s, "migrations_path": f"./{s}/migrations"} for s in schemas]
+          controllers = json.loads('''$CONTROLLERS''')
+          matrix = [{"name": s, "migrations_path": f"./{s}/migrations"} for s in controllers]
           print(json.dumps({"include": matrix}))
           EOF
           )
