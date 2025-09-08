@@ -67,11 +67,11 @@ jobs:
         id: set-env
         run: |
           if [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
-            echo "environment=sf_dev_credentials_env" >> $GITHUB_OUTPUT
+            echo "environment=sf_dev_env_cred" >> $GITHUB_OUTPUT
           elif [[ "${GITHUB_REF_NAME}" == "test" ]]; then
-            echo "environment=sf_test_credentials_env" >> $GITHUB_OUTPUT
+            echo "environment=sf_test_env_cred" >> $GITHUB_OUTPUT
           elif [[ "${GITHUB_REF_NAME}" == "main" ]]; then
-            echo "environment=sf_prod_credentials_env" >> $GITHUB_OUTPUT
+            echo "environment=sf_prod_env_cred" >> $GITHUB_OUTPUT
           else
             echo "❌ Unsupported branch: ${GITHUB_REF_NAME}" >&2
             exit 1
