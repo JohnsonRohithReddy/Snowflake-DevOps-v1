@@ -1,7 +1,0 @@
-config-version: 1.0
-root-folder: gold/migrations/scripts
-vars:
-  database_name: {{ env_var('SF_DATABASE') }}
-create-change-history-table: true
-change-history-table: {{ env_var('SF_DATABASE') }}.SCHEMACHANGE.CHANGE_HISTORY
-query-tag: 'SCHEMACHANGE_DEPLOY_GOLD'
