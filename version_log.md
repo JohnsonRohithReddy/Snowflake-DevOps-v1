@@ -1,7 +1,4 @@
-version: V1.1.5__create_sales_gold.sql 
-    description: created gold sales table for aggregated data.
 
- 
 version: V1.1.4__transform_sales.sql
 
     description: created tranformed sales table
