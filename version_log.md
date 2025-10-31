@@ -1,3 +1,7 @@
+version: V1.1.6__create_raw_customer.sql
+
+    description: created raw customers table
+
 version: V1.1.5__create_sales_gold.sql 
 
     description: created gold sales table for aggregated data.
