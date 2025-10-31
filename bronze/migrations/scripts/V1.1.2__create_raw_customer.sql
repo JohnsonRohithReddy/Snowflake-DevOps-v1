@@ -1,5 +1,5 @@
-CREATE SCHEMA IF NOT EXISTS {{ new_schema }};
-CREATE OR REPLACE TABLE {{ database_name }}.{{ new_schema }}.SALES_RAW_bronze_test_2
+CREATE SCHEMA IF NOT EXISTS {{ sf_schema }};
+CREATE OR REPLACE TABLE {{ database_name }}.{{ sf_schema }}.Customer_raw_bronze
 (
     SALE_ID VARCHAR,
     PRODUCT_ID VARCHAR,

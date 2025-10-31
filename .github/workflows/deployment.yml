@@ -36,10 +36,10 @@ jobs:
         id: set-matrix
         working-directory: ${{ github.workspace }}
         run: |
-          SCHEMAS=$(python config/get_schemas.py)
-          echo "Schemas from get_schemas.py: $SCHEMAS"
+          CONTROLLERS=$(python config/get_controller.py)
+          echo "Schemas from get_controller.py: $CONTROLLERS"
 
-          if [ -z "$SCHEMAS" ]; then
+          if [ -z "$CONTROLLERS" ]; then
             echo "❌ No schemas found. Exiting."
             exit 1
           fi
@@ -47,8 +47,8 @@ jobs:
           # Build matrix as an array of objects and wrap in include
           MATRIX_JSON=$(python - <<EOF
           import json
-          schemas = json.loads('''$SCHEMAS''')
-          matrix = [{"name": s, "migrations_path": f"./{s}/migrations"} for s in schemas]
+          controllers = json.loads('''$CONTROLLERS''')
+          matrix = [{"name": s, "migrations_path": f"./{s}/migrations"} for s in controllers]
           print(json.dumps({"include": matrix}))
           EOF
           )
@@ -67,11 +67,11 @@ jobs:
         id: set-env
         run: |
           if [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
-            echo "environment=sf_dev_credentials_env" >> $GITHUB_OUTPUT
+            echo "environment=sf_dev_env_cred" >> $GITHUB_OUTPUT
           elif [[ "${GITHUB_REF_NAME}" == "test" ]]; then
-            echo "environment=sf_test_credentials_env" >> $GITHUB_OUTPUT
+            echo "environment=sf_test_env_cred" >> $GITHUB_OUTPUT
           elif [[ "${GITHUB_REF_NAME}" == "main" ]]; then
-            echo "environment=sf_prod_credentials_env" >> $GITHUB_OUTPUT
+            echo "environment=sf_prod_env_cred" >> $GITHUB_OUTPUT
           else
             echo "❌ Unsupported branch: ${GITHUB_REF_NAME}" >&2
             exit 1
@@ -138,7 +138,7 @@ jobs:
         id: parse-vars
         run: |
           VAR_FILE="${{ matrix.migrations_path }}/${{ matrix.name }}-var.yml"
-          VARS_JSON=$(python parse_vars.py "$VAR_FILE")
+          VARS_JSON=$(python config/get_vars.py "$VAR_FILE")
           echo "VARS_JSON=$VARS_JSON" >> $GITHUB_ENV
           echo "Parsed variables: $VARS_JSON"
 
