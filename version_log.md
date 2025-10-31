@@ -1,3 +1,8 @@
+version: V1.1.7__silver_table_customers.sql
+
+    description: created silver customer table 
+
+
 version: V1.1.6__create_raw_customer.sql
 
     description: created raw customers table
