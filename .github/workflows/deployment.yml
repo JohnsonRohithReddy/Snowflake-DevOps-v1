@@ -117,11 +117,11 @@ jobs:
       - name: Deploy schema with schemachange 4.1.0
         run: |
           echo "Deploying schema: ${{ matrix.name }}"
-          echo "Migrations path: ${{ matrix.migrations_path }}"
+          echo "Root folder: ${{ matrix.migrations_path }}"
 
           schemachange deploy \
             --config-folder ~/.schemachange \
-            --connection default \
+            --connection-name default \
             --root-folder "${{ matrix.migrations_path }}" \
             --modules-folder "${{ matrix.migrations_path }}/config" \
             --vars-file "${{ steps.parse-vars.outputs.vars-file }}" \
