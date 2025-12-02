@@ -119,11 +119,14 @@ jobs:
           echo "Deploying schema: ${{ matrix.name }}"
           echo "Root folder: ${{ matrix.migrations_path }}"
 
+          # Read JSON from file and escape for safe inline passing (handles quotes/special chars)
+          VARS_JSON=$(cat "${{ steps.parse-vars.outputs.vars-file }}" | python -c "import json, sys; print(json.dumps(json.load(sys.stdin)))")
+          
           schemachange deploy \
             --config-folder ~/.schemachange \
             --connection-name default \
-            --root-folder "${{ matrix.migrations_path }}" \
-            --modules-folder "${{ matrix.migrations_path }}/config" \
-            --vars-file "${{ steps.parse-vars.outputs.vars-file }}" \
-            --create-change-history-table \
+            --schemachange-root-folder "${{ matrix.migrations_path }}" \
+            --schemachange-modules-folder "${{ matrix.migrations_path }}/config" \
+            --schemachange-vars "$VARS_JSON" \
+            --schemachange-create-change-history-table \
             --verbose
