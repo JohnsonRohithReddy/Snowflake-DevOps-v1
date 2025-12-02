@@ -133,10 +133,11 @@ jobs:
       - name: Run schemachange deploy
         run: |
           echo "Deploying schema: ${{ matrix.name }}"
-          echo "Using vars: '${{ steps.parse-vars.outputs.vars-json }}'"
+          echo "Using vars: ${{ steps.parse-vars.outputs.vars-json }}"
+
           schemachange deploy \
             --config-folder "${{ matrix.migrations_path }}/config" \
             --vars '${{ steps.parse-vars.outputs.vars-json }}' \
-            --schemachange-connections-file-path config/connections.toml \
-            --connection-name connections \
+            --connections-file config/connections.toml \     # ← NEW mandatory flag in v4
+            --connection-name default \                      # ← CORRECTED (was "connections")
             --verbose
