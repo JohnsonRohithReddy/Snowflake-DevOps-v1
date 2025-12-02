@@ -136,6 +136,6 @@ jobs:
           schemachange deploy \
             --config-folder "${{ matrix.migrations_path }}/config" \
             --vars "$(cat ${{ steps.parse-vars.outputs.vars-file }})" \
-            --connections-file config/connections.toml \
+            --connections-file ./config/connections.toml\
             --connection-name default \
             --log-level DEBUG
