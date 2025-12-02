@@ -1,2 +1,3 @@
 variables:
+  database_name : sf_devops_dev_db
   sf_schema: Gold
