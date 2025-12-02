@@ -112,31 +112,32 @@ jobs:
         id: parse-vars
         run: |
           VAR_FILE="${{ matrix.migrations_path }}/${{ matrix.name }}-var.yml"
-          
+
           if [ ! -f "$VAR_FILE" ]; then
             echo "No var file found → using empty vars"
-            echo "vars-json={}" >> $GITHUB_OUTPUT
+            echo "vars-file=/tmp/empty-vars.json" >> $GITHUB_OUTPUT
+            echo "{}" > /tmp/empty-vars.json
             exit 0
           fi
 
-          # Get clean JSON from your script
+          # Get clean JSON from your script (must output valid JSON)
           VARS_JSON=$(python config/get_vars.py "$VAR_FILE")
           echo "Raw JSON: $VARS_JSON"
 
-          # Use delimiter syntax — this is the ONLY way that survives spaces
-          {
-            echo "vars-json<<EOF"
-            echo "$VARS_JSON"
-            echo "EOF"
-          } >> $GITHUB_OUTPUT
-   
+          # Write JSON to a file so quoting isn't lost across steps
+          echo "$VARS_JSON" > /tmp/vars.json
+
+          # Expose the path as a step output (safe and simple)
+          echo "vars-file=/tmp/vars.json" >> $GITHUB_OUTPUT
+
       - name: Run schemachange deploy
         run: |
           echo "Deploying schema: ${{ matrix.name }}"
-          echo "Using vars: '${{ steps.parse-vars.outputs.vars-json }}'"
+          # show only the file path (do not print secrets)
+          echo "Using vars file: ${{ steps.parse-vars.outputs.vars-file }}"
           schemachange deploy \
             --config-folder "${{ matrix.migrations_path }}/config" \
-            --vars '${{ steps.parse-vars.outputs.vars-json }}' \
-            --connections-file-path config/connections.toml \   # <-- corrected flag
+            --vars "$(cat ${{ steps.parse-vars.outputs.vars-file }})" \
+            --connections-file-path config/connections.toml \
             --connection-name connections \
             --verbose
