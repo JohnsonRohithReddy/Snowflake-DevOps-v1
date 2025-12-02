@@ -102,15 +102,15 @@ jobs:
         run: |
           mkdir -p config
           cat > config/connections.toml <<EOF
-[connections.connections]
-account          = "${{ secrets.SF_ACCOUNT }}"
-user             = "${{ secrets.SF_USERNAME }}"
-role             = "${{ secrets.SF_ROLE }}"
-warehouse        = "${{ secrets.SF_WAREHOUSE }}"
-database         = "${{ secrets.SF_DATABASE }}"
-private_key_path = "$HOME/.snowflake/private_key.pem"
-password         = ""
-EOF
+          [connections.connections]
+          account          = "${{ secrets.SF_ACCOUNT }}"
+          user             = "${{ secrets.SF_USERNAME }}"
+          role             = "${{ secrets.SF_ROLE }}"
+          warehouse        = "${{ secrets.SF_WAREHOUSE }}"
+          database         = "${{ secrets.SF_DATABASE }}"
+          private_key_path = "$HOME/.snowflake/private_key.pem"
+          password         = ""
+          EOF
           chmod 600 config/connections.toml
           echo "connections.toml created successfully"
 
