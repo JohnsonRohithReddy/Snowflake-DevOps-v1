@@ -16,18 +16,22 @@ jobs:
       environment: ${{ steps.set-env.outputs.environment }}
     steps:
       - uses: actions/checkout@v3
+
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
+
       - name: Install PyYAML
         run: pip install pyyaml
+
       - name: Generate schema matrix
         id: set-matrix
         run: |
           CONTROLLERS=$(python config/get_controller.py)
-          echo "Schemas: $CONTROLLERS"
-          [ -z "$CONTROLLERS" ] && exit 1
+          echo "Schemas found: $CONTROLLERS"
+          [ -z "$CONTROLLERS" ] && echo "No schemas!" && exit 1
+
           MATRIX_JSON=$(python - <<EOF
           import json
           controllers = json.loads('''$CONTROLLERS''')
@@ -36,6 +40,7 @@ jobs:
           EOF
           )
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+
       - name: Select environment
         id: set-env
         run: |
@@ -46,6 +51,9 @@ jobs:
             *)    echo "Unsupported branch" >&2; exit 1 ;;
           esac >> $GITHUB_OUTPUT
 
+  # ==============================================
+  # DEPLOY JOB — Key-Pair Auth + Correct --vars
+  # ==============================================
   deploy:
     needs: generate-matrix
     runs-on: ubuntu-latest
@@ -61,25 +69,27 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install schemachange + tomli
-        run: pip install schemachange tomli
+      - name: Install dependencies
+        run: |
+          pip install schemachange tomli pyyaml  # tomli required for connections.toml
 
       - name: Deploying ${{ matrix.name }}
         run: |
           echo "Deploying schema: ${{ matrix.name }}"
-          echo "Path: ${{ matrix.migrations_path }}"
+          echo "Migrations path: ${{ matrix.migrations_path }}"
 
-      # 1. Private Key — works with your existing key
-      - name: Install Private Key
+      # 1. Install your existing private key (no conversion needed)
+      - name: Install Snowflake Private Key
         env:
           SF_PRIVATE_KEY: ${{ secrets.SF_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.snowflake
           echo "$SF_PRIVATE_KEY" > ~/.snowflake/private_key.pem
-          sed -i 's/\r$//' ~/.snowflake/private_key.pem
+          sed -i 's/\r$//' ~/.snowflake/private_key.pem   # Remove Windows CR
           chmod 600 ~/.snowflake/private_key.pem
+          echo "Private key installed at ~/.snowflake/private_key.pem"
 
-      # 2. connections.toml — correct format for schemachange 4.x
+      # 2. Create connections.toml — CORRECT header for schemachange 4.x
       - name: Create connections.toml
         run: |
           mkdir -p config
@@ -94,33 +104,24 @@ jobs:
           password         = ""
           EOF
           chmod 600 config/connections.toml
+          echo "connections.toml created successfully"
 
-      # 3. Parse variables — THE REAL FIX (outputs proper JSON)
-      - name: Parse variables (FINAL FIX)
+      # 3. Parse variables — 100% correct using your get_vars.py
+      - name: Parse schema variables
         run: |
           VAR_FILE="${{ matrix.migrations_path }}/${{ matrix.name }}-var.yml"
           
           if [ ! -f "$VAR_FILE" ]; then
-            echo "No var file → using {}"
+            echo "No var file found → using empty vars"
             echo "VARS_JSON={}" >> $GITHUB_ENV
-            exit 0
+          else
+            # This calls your script and gets clean JSON string
+            VARS_JSON=$(python config/get_vars.py "$VAR_FILE")
+            echo "VARS_JSON=$VARS_JSON" >> $GITHUB_ENV
+            echo "Variables loaded: $VARS_JSON"
           fi
 
-          # This is the magic line — forces clean JSON output
-          CLEAN_JSON=$(python -c "
-import json
-import sys
-sys.path.append('config')
-import get_vars
-raw = get_vars.main('$VAR_FILE') if hasattr(get_vars, 'main') else get_vars.get_vars('$VAR_FILE')
-# or if your script just prints, use: raw = eval(open('$VAR_FILE').read())['variables']
-print(json.dumps(raw))
-          ")
-
-          echo "Clean JSON for schemachange: $CLEAN_JSON"
-          echo "VARS_JSON=$CLEAN_JSON" >> $GITHUB_ENV
-
-      # 4. Deploy — NO QUOTES!
+      # 4. Deploy — NO QUOTES around $VARS_JSON!
       - name: Run schemachange deploy
         run: |
           schemachange deploy \
