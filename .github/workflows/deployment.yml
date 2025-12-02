@@ -133,8 +133,31 @@ jobs:
         run: |
           VAR_FILE="${{ matrix.migrations_path }}/${{ matrix.name }}-var.yml"
           VARS_JSON=$(python config/get_vars.py "$VAR_FILE")
-          echo "VARS_JSON=$VARS_JSON" >> $GITHUB_ENV
-          echo "Parsed variables: $VARS_JSON"
+          
+          # Debug
+          echo "Raw VARS_JSON from script:"
+          echo "$VARS_JSON"
+          
+          # Validate it's real JSON
+          echo "$VARS_JSON" | python -c "import sys,json; json.load(sys.stdin)"
+          
+          # Escape for GitHub Actions output (handles newlines, quotes, etc.)
+          delimited="${VARS_JSON//$'\n'/\\n}"
+          echo "vars-json=$delimited" >> $GITHUB_OUTPUT
+          
+      - name: Run schemachange deploy
+        env:
+          VARS_JSON: ${{ steps.parse-vars.outputs.vars-json }}
+        run: |
+          echo "Deploying schema: ${{ matrix.name }}"
+          echo "Using variables: $VARS_JSON"
+          
+          schemachange deploy \
+            --config-folder "${{ matrix.migrations_path }}/config" \
+            --vars "$VARS_JSON" \
+            --connections-file-path config/connections.toml \
+            --connection-name connections \
+            --verbose
 
       # —————————————————————————————————————————————————————————————
       # 4. Run schemachange — NO QUOTES around $VARS_JSON!
