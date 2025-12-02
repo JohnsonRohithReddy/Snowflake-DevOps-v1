@@ -112,23 +112,23 @@ jobs:
         id: parse-vars
         run: |
           VAR_FILE="${{ matrix.migrations_path }}/${{ matrix.name }}-var.yml"
-          # convert YAML -> compact JSON (single line)
-          python - <<PY > /tmp/vars.json
+          VARS_JSON=$(python - <<PY
           import sys, json, yaml
           f = sys.argv[1]
           data = yaml.safe_load(open(f))
           print(json.dumps(data, separators=(',',':')))
           PY
-                /bin/ls -l /tmp/vars.json
-                echo "Wrote vars to /tmp/vars.json"
-          
+                "$VAR_FILE")
+                # store as step output
+                echo "vars-json=$VARS_JSON" >> $GITHUB_OUTPUT
+    
       - name: Run schemachange deploy
         run: |
           echo "Deploying schema: ${{ matrix.name }}"
-          echo "Vars preview: $(head -c 200 /tmp/vars.json)..."   # debug
+          echo "Using vars: ${{ steps.parse-vars.outputs.vars-json }}"
           schemachange deploy \
             --config-folder "${{ matrix.migrations_path }}/config" \
-            --vars "$(cat /tmp/vars.json)" \
+            --vars "${{ steps.parse-vars.outputs.vars-json }}" \
             --schemachange-connections-file-path config/connections.toml \
             --connection-name connections \
             --verbose
