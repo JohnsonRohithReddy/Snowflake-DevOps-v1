@@ -80,7 +80,7 @@ jobs:
       # —————————————————————————————————————————————————————————————
       - name: Install Snowflake Private Key
         env:
-          SF_PRIVATE_KEY:: ${{ secrets.SF_PRIVATE_KEY }} # Full PEM with BEGIN/END
+          SF_PRIVATE_KEY: ${{ secrets.SF_PRIVATE_KEY }} # Full PEM with BEGIN/END
         run: |
           mkdir -p ~/.snowflake
           echo "$SF_PRIVATE_KEY" > ~/.snowflake/private_key.pem
@@ -100,10 +100,11 @@ jobs:
           role = "${{ secrets.SF_ROLE }}"
           warehouse = "${{ secrets.SF_WAREHOUSE }}"
           database = "${{ secrets.SF_DATABASE }}"
-          private_key_path = "/home/runner/.snowflake/private_key.pem"
+          # prefer 'private_key_file' field name (matches Snowflake connector)
+          private_key_file = "/home/runner/.snowflake/private_key.pem"
           EOF
-          echo "connections.toml created successfully:"
-          cat config/connections.toml
+          # do NOT print file contents (avoid leaking secrets). Show only path:
+          echo "Created connections file at config/connections.toml"
       # —————————————————————————————————————————————————————————————
       # 3. Parse variables — CRITICAL FIX: Strip quotes!
       # —————————————————————————————————————————————————————————————
@@ -132,11 +133,10 @@ jobs:
       - name: Run schemachange deploy
         run: |
           echo "Deploying schema: ${{ matrix.name }}"
-          echo "Using vars: ${{ steps.parse-vars.outputs.vars-json }}"
-
+          echo "Using vars: '${{ steps.parse-vars.outputs.vars-json }}'"
           schemachange deploy \
             --config-folder "${{ matrix.migrations_path }}/config" \
-            --connections-file config/connections.toml \
-            --connection-name default \
             --vars '${{ steps.parse-vars.outputs.vars-json }}' \
-            --log-level DEBUG
+            --connections-file-path config/connections.toml \   # <-- corrected flag
+            --connection-name connections \
+            --verbose
