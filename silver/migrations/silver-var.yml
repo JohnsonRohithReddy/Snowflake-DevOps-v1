@@ -1,3 +1,4 @@
 variables:
+  database_name : sf_devops_dev_db
   sf_schema: silver
   sf_schema_test: silver_test_100
