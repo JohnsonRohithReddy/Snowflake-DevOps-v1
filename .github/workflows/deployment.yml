@@ -119,7 +119,7 @@ jobs:
           echo "Deploying schema: ${{ matrix.name }}"
           echo "Root folder: ${{ matrix.migrations_path }}"
 
-          # Read and escape JSON variables safely
+          # Safely read and escape variables JSON
           VARS_JSON=$(cat /tmp/vars.json | python -c "import json, sys; print(json.dumps(json.load(sys.stdin)))")
 
           schemachange deploy \
@@ -129,5 +129,6 @@ jobs:
             --schemachange-root-folder "${{ matrix.migrations_path }}" \
             --schemachange-modules-folder "${{ matrix.migrations_path }}/config" \
             --schemachange-vars "$VARS_JSON" \
+            --schemachange-change-history-table "${{ secrets.SF_DATABASE }}.SCHEMACHANGE.CHANGE_HISTORY" \
             --schemachange-create-change-history-table \
             --verbose
