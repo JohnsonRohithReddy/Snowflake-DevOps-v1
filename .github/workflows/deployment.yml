@@ -1,4 +1,5 @@
 name: Deploy Schemas
+
 on:
   push:
     branches:
@@ -6,6 +7,7 @@ on:
       - test
       - main
   workflow_dispatch:
+
 jobs:
   generate-matrix:
     runs-on: ubuntu-latest
@@ -14,12 +16,15 @@ jobs:
       environment: ${{ steps.set-env.outputs.environment }}
     steps:
       - uses: actions/checkout@v3
+
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
+
       - name: Install PyYAML
         run: pip install pyyaml
+
       - name: Generate schema matrix
         id: set-matrix
         run: |
@@ -36,113 +41,89 @@ jobs:
           print(json.dumps({"include": matrix}))
           EOF
           )
-          # Debug: log raw JSON matrix
-          echo "Matrix JSON (raw): $MATRIX_JSON"
-          # Debug: log each matrix entry separately
-          echo "Matrix entries:"
-          echo "$MATRIX_JSON" | python -c "import sys, json; [print(i) for i in json.loads(sys.stdin.read())['include']]"
-          # Set matrix for workflow
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+
       - name: Select environment based on branch
         id: set-env
         run: |
           case "${{ github.ref_name }}" in
-            dev) echo "environment=sf_dev_env_cred" ;;
-            test) echo "environment=sf_test_env_cred" ;;
-            main) echo "environment=sf_prod_env_cred" ;;
-            *) echo "Unsupported branch: ${{ github.ref_name }}" >&2; exit 1 ;;
+            dev)   echo "environment=sf_dev_env_cred" ;;
+            test)  echo "environment=sf_test_env_cred" ;;
+            main)  echo "environment=sf_prod_env_cred" ;;
+            *)     echo "Unsupported branch: ${{ github.ref_name }}" >&2; exit 1 ;;
           esac >> $GITHUB_OUTPUT
+
       - name: Log selected environment
         run: |
-          echo "✅ Selected GitHub environment for branch ${GITHUB_REF_NAME}: ${{ steps.set-env.outputs.environment }}"
-       
+          echo "Selected GitHub environment: ${{ steps.set-env.outputs.environment }}"
+
   deploy:
     needs: generate-matrix
     runs-on: ubuntu-latest
+    environment: ${{ needs.generate-matrix.outputs.environment }}
     strategy:
       matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
-    environment: ${{ needs.generate-matrix.outputs.environment }}
+
     steps:
       - uses: actions/checkout@v3
+
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
-      - name: Install dependencies
-        run: |
-          pip install schemachange tomli # tomli is REQUIRED for connections.toml parsing
-      - name: Deploying ${{ matrix.name }}
-        run: |
-          echo "Deploying schema: ${{ matrix.name }}"
-          echo "Migrations path: ${{ matrix.migrations_path }}"
-      # —————————————————————————————————————————————————————————————
-      # 1. Install Private Key (your existing key works perfectly)
-      # —————————————————————————————————————————————————————————————
+
+      - name: Install schemachange + tomli
+        run: pip install schemachange tomli
+
       - name: Install Snowflake Private Key
         env:
-          SF_PRIVATE_KEY: ${{ secrets.SF_PRIVATE_KEY }} # Full PEM with BEGIN/END
+          SF_PRIVATE_KEY: ${{ secrets.SF_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.snowflake
           echo "$SF_PRIVATE_KEY" > ~/.snowflake/private_key.pem
-          sed -i 's/\r$//' ~/.snowflake/private_key.pem # Remove Windows line endings
           chmod 600 ~/.snowflake/private_key.pem
-          echo "Private key installed successfully"
-      # —————————————————————————————————————————————————————————————
-      # 2. Create connections.toml (Key-Pair Auth + correct TOML header)
-      # —————————————————————————————————————————————————————————————
-      - name: Create connections.toml
+          echo "Private key installed"
+
+      # schemachange 4.1.0 looks for config in ~/.schemachange by default
+      - name: Create schemachange connections.toml
         run: |
-          mkdir -p config
-          cat > config/connections.toml <<EOF  # ← Removed single quotes here
-          [connections]  # This defines the DEFAULT connection
+          mkdir -p ~/.schemachange
+          cat > ~/.schemachange/connections.toml <<EOF
+          [default]
           account   = "${{ secrets.SF_ACCOUNT }}"
           user      = "${{ secrets.SF_USERNAME }}"
           role      = "${{ secrets.SF_ROLE }}"
           warehouse = "${{ secrets.SF_WAREHOUSE }}"
           database  = "${{ secrets.SF_DATABASE }}"
-          private_key_file = "/home/runner/.snowflake/private_key.pem"
+          schema    = "${{ matrix.name }}"
+          private_key_path = "/home/runner/.snowflake/private_key.pem"
           EOF
-          echo "Created connections file at config/connections.toml"
-      # —————————————————————————————————————————————————————————————
-      # 3. Parse variables — CRITICAL FIX: Strip quotes!
-      # —————————————————————————————————————————————————————————————
-      - name: Parse schema-specific variables
+          echo "connections.toml created with schema = ${{ matrix.name }}"
+
+      - name: Prepare variables file (if exists)
         id: parse-vars
         run: |
           VAR_FILE="${{ matrix.migrations_path }}/${{ matrix.name }}-var.yml"
-
           if [ ! -f "$VAR_FILE" ]; then
-            echo "No var file found → using empty vars"
-            echo "vars-file=/tmp/empty-vars.json" >> $GITHUB_OUTPUT
-            echo "{}" > /tmp/empty-vars.json
-            exit 0
+            echo "No var file found for ${{ matrix.name }} → using empty vars"
+            echo "{}" > /tmp/vars.json
+          else
+            echo "Found var file: $VAR_FILE"
+            python config/get_vars.py "$VAR_FILE" > /tmp/vars.json
           fi
-
-          # Get clean JSON from your script (must output valid JSON)
-          VARS_JSON=$(python config/get_vars.py "$VAR_FILE")
-          echo "Raw JSON: $VARS_JSON"
-
-          # Write JSON to a file so quoting isn't lost across steps
-          echo "$VARS_JSON" > /tmp/vars.json
-
-          # Expose the path as a step output (safe and simple)
+          cat /tmp/vars.json
           echo "vars-file=/tmp/vars.json" >> $GITHUB_OUTPUT
 
-      - name: Run schemachange deploy
+      - name: Deploy schema with schemachange 4.1.0
         run: |
           echo "Deploying schema: ${{ matrix.name }}"
-          echo "Using vars file: ${{ steps.parse-vars.outputs.vars-file }}"
+          echo "Migrations path: ${{ matrix.migrations_path }}"
 
           schemachange deploy \
+            --config-folder ~/.schemachange \
+            --connection default \
             --root-folder "${{ matrix.migrations_path }}" \
-            --config-folder "${{ matrix.migrations_path }}/config" \
+            --modules-folder "${{ matrix.migrations_path }}/config" \
             --vars-file "${{ steps.parse-vars.outputs.vars-file }}" \
-            --account "${{ secrets.SF_ACCOUNT }}" \
-            --user "${{ secrets.SF_USERNAME }}" \
-            --role "${{ secrets.SF_ROLE }}" \
-            --warehouse "${{ secrets.SF_WAREHOUSE }}" \
-            --database "${{ secrets.SF_DATABASE }}" \
-            --snowflake-schema "${{ matrix.name }}" \
-            --snowflake-private-key-path "/home/runner/.snowflake/private_key.pem" \
-            --schemachange-create-change-history-table \
-            --log-level DEBUG
+            --create-change-history-table \
+            --verbose
