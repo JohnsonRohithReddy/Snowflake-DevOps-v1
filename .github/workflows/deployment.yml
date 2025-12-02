@@ -72,8 +72,8 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install schemachange + tomli
-        run: pip install schemachange tomli
+      - name: Install schemachange + tomli + snowflake-connector
+        run: pip install schemachange tomli snowflake-connector-python[pkey]
 
       - name: Install Snowflake Private Key
         env:
@@ -84,21 +84,71 @@ jobs:
           chmod 600 ~/.snowflake/private_key.pem
           echo "Private key installed"
 
-      # schemachange 4.1.0 looks for config in ~/.schemachange by default
-      - name: Create schemachange connections.toml
+      - name: Create schemachange connections.toml (secure + modern)
         run: |
           mkdir -p ~/.schemachange
           cat > ~/.schemachange/connections.toml <<EOF
           [default]
-          account   = "${{ secrets.SF_ACCOUNT }}"
-          user      = "${{ secrets.SF_USERNAME }}"
-          role      = "${{ secrets.SF_ROLE }}"
-          warehouse = "${{ secrets.SF_WAREHOUSE }}"
-          database  = "${{ secrets.SF_DATABASE }}"
-          schema    = "${{ matrix.name }}"
-          private_key_path = "/home/runner/.snowflake/private_key.pem"
+          account          = "${{ secrets.SF_ACCOUNT }}"
+          user             = "${{ secrets.SF_USERNAME }}"
+          role             = "${{ secrets.SF_ROLE }}"
+          warehouse        = "${{ secrets.SF_WAREHOUSE }}"
+          database         = "${{ secrets.SF_DATABASE }}"
+          schema           = "${{ matrix.name }}"
+          private_key_file = "/home/runner/.snowflake/private_key.pem"
           EOF
+          chmod 600 ~/.schemachange/connections.toml
           echo "connections.toml created with schema = ${{ matrix.name }}"
+
+      - name: Create target schema (prevents USE SCHEMA failure)
+        env:
+          SF_ACCOUNT: ${{ secrets.SF_ACCOUNT }}
+          SF_USERNAME: ${{ secrets.SF_USERNAME }}
+          SF_ROLE: ${{ secrets.SF_ROLE }}
+          SF_WAREHOUSE: ${{ secrets.SF_WAREHOUSE }}
+          SF_DATABASE: ${{ secrets.SF_DATABASE }}
+        run: |
+          python - <<EOF
+          import snowflake.connector
+          from snowflake.connector import Error
+
+          # Load private key
+          with open('/home/runner/.snowflake/private_key.pem', 'r') as f:
+              pkey = f.read()
+
+          try:
+              # Connect to Snowflake
+              conn = snowflake.connector.connect(
+                  account=env['SF_ACCOUNT'],
+                  user=env['SF_USERNAME'],
+                  role=env['SF_ROLE'],
+                  warehouse=env['SF_WAREHOUSE'],
+                  database=env['SF_DATABASE'],
+                  private_key=pkey
+              )
+              cur = conn.cursor()
+
+              # Set context and create schema if not exists
+              cur.execute(f"USE ROLE {env['SF_ROLE']}")
+              cur.execute(f"USE WAREHOUSE {env['SF_WAREHOUSE']}")
+              cur.execute(f"USE DATABASE {env['SF_DATABASE']}")
+              cur.execute(f"CREATE SCHEMA IF NOT EXISTS {env['SF_DATABASE']}.{env['matrix_name']}")
+              print(f"✅ Schema '{env['SF_DATABASE']}.{env['matrix_name']}' created or verified.")
+
+              # Optional: Grant USAGE if needed (uncomment if permission issues persist)
+              # cur.execute(f"GRANT USAGE ON DATABASE {env['SF_DATABASE']} TO ROLE {env['SF_ROLE']}")
+              # cur.execute(f"GRANT CREATE SCHEMA ON DATABASE {env['SF_DATABASE']} TO ROLE {env['SF_ROLE']}")
+              # print(f"✅ Granted USAGE on database to role {env['SF_ROLE']}")
+
+              cur.close()
+              conn.close()
+          except Error as e:
+              print(f"❌ Error creating schema: {e}")
+              exit(1)
+          EOF
+          # Note: env vars are auto-available in run:, but matrix.name needs manual pass
+        env:
+          matrix_name: ${{ matrix.name }}
 
       - name: Prepare variables file (if exists)
         id: parse-vars
@@ -114,9 +164,18 @@ jobs:
           cat /tmp/vars.json
           echo "vars-file=/tmp/vars.json" >> $GITHUB_OUTPUT
 
+      - name: Disable schemachange-config.yml to avoid Jinja rendering errors
+        run: |
+          CONFIG_FILE="${{ matrix.migrations_path }}/config/schemachange-config.yml"
+          if [ -f "$CONFIG_FILE" ]; then
+            mv "$CONFIG_FILE" "$CONFIG_FILE.disabled_by_ci"
+            echo "Disabled schemachange-config.yml to prevent 'database_name undefined'"
+          fi
+
       - name: Deploy schema with schemachange 4.1.0
         run: |
           echo "Deploying schema: ${{ matrix.name }}"
+          echo "Root folder: ${{ matrix.migrations_path }}"
 
           VARS_JSON=$(cat /tmp/vars.json | python -c "import json, sys; print(json.dumps(json.load(sys.stdin)))")
 
@@ -129,5 +188,4 @@ jobs:
             --schemachange-vars "$VARS_JSON" \
             --schemachange-change-history-table "${{ secrets.SF_DATABASE }}.SCHEMACHANGE.CHANGE_HISTORY" \
             --schemachange-create-change-history-table \
-            --schemachange-skip-use-statement-injection true \
             --log-level DEBUG
