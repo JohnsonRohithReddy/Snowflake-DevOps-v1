@@ -33,11 +33,11 @@ jobs:
           [ -z "$CONTROLLERS" ] && echo "No schemas!" && exit 1
 
           MATRIX_JSON=$(python - <<'PY'
-import json, sys
-controllers = json.loads(sys.argv[1])
-matrix = [{"name": s, "migrations_path": f"./{s}/migrations"} for s in controllers]
-print(json.dumps({"include": matrix}))
-PY
+          import json, sys
+          controllers = json.loads(sys.argv[1])
+          matrix = [{"name": s, "migrations_path": f"./{s}/migrations"} for s in controllers]
+          print(json.dumps({"include": matrix}))
+          PY
           "$CONTROLLERS"
           )
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
