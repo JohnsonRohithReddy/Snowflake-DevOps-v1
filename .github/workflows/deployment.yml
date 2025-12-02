@@ -40,10 +40,10 @@ jobs:
 
           # Use python -c and pass the JSON as a single argument to avoid heredoc interpolation issues
           MATRIX_JSON=$(python -c 'import json,sys
-json_str = sys.argv[1]
-controllers = json.loads(json_str)
-matrix = [{"name": s, "migrations_path": f"./{s}/migrations"} for s in controllers]
-print(json.dumps({"include": matrix}))' "$CONTROLLERS")
+          json_str = sys.argv[1]
+          controllers = json.loads(json_str)
+          matrix = [{"name": s, "migrations_path": f"./{s}/migrations"} for s in controllers]
+          print(json.dumps({"include": matrix}))' "$CONTROLLERS")
 
           echo "Matrix JSON: $MATRIX_JSON"
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
@@ -113,15 +113,15 @@ print(json.dumps({"include": matrix}))' "$CONTROLLERS")
           mkdir -p config
 
           cat > config/connections.toml <<EOF
-[connections.connections]
-account          = "${{ secrets.SF_ACCOUNT }}"
-user             = "${{ secrets.SF_USERNAME }}"
-role             = "${{ secrets.SF_ROLE }}"
-warehouse        = "${{ secrets.SF_WAREHOUSE }}"
-database         = "${{ secrets.SF_DATABASE }}"
-private_key_path = "$HOME/.snowflake/private_key.pem"
-password         = ""
-EOF
+          [connections.connections]
+          account          = "${{ secrets.SF_ACCOUNT }}"
+          user             = "${{ secrets.SF_USERNAME }}"
+          role             = "${{ secrets.SF_ROLE }}"
+          warehouse        = "${{ secrets.SF_WAREHOUSE }}"
+          database         = "${{ secrets.SF_DATABASE }}"
+          private_key_path = "$HOME/.snowflake/private_key.pem"
+          password         = ""
+          EOF
 
           # Append passphrase only if provided (do not echo it)
           if [ -n "${SF_PRIVATE_KEY_PASSPHRASE:-}" ]; then
