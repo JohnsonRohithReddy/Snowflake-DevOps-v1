@@ -94,7 +94,7 @@ jobs:
         run: |
           mkdir -p config
           cat > config/connections.toml <<EOF  # ← Removed single quotes here
-          [connections]  # This defines the DEFAULT connection
+          [connections.default]  # This defines the DEFAULT connection
           account = "${{ secrets.SF_ACCOUNT }}"
           user = "${{ secrets.SF_USERNAME }}"
           role = "${{ secrets.SF_ROLE }}"
