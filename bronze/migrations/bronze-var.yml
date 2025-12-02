@@ -1,4 +1,5 @@
 variables:
+  database_name : sf_devops_dev_db
   sf_schema: bronze
   new_var: test_value
   new_schema: silver_test
