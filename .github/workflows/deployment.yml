@@ -16,41 +16,34 @@ jobs:
       environment: ${{ steps.set-env.outputs.environment }}
     steps:
       - uses: actions/checkout@v3
-
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
-
       - name: Install PyYAML
         run: pip install pyyaml
-
       - name: Generate schema matrix
         id: set-matrix
         run: |
           CONTROLLERS=$(python config/get_controller.py)
           echo "Schemas from get_controller.py: $CONTROLLERS"
-          if [ -z "$CONTROLLERS" ]; then
-            echo "No schemas found. Exiting."
-            exit 1
-          fi
+          [ -z "$CONTROLLERS" ] && { echo "No schemas found"; exit 1; }
           MATRIX_JSON=$(python - <<EOF
-          import json
+          import json, sys
           controllers = json.loads('''$CONTROLLERS''')
           matrix = [{"name": s, "migrations_path": f"./{s}/migrations"} for s in controllers]
           print(json.dumps({"include": matrix}))
           EOF
           )
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
-
-      - name: Select environment based on branch
+      - name: Select environment
         id: set-env
         run: |
           case "${{ github.ref_name }}" in
             dev)   echo "environment=sf_dev_env_cred" ;;
             test)  echo "environment=sf_test_env_cred" ;;
             main)  echo "environment=sf_prod_env_cred" ;;
-            *)     echo "Unsupported branch: ${{ github.ref_name }}" >&2; exit 1 ;;
+            *)     echo "Unsupported branch" >&2; exit 1 ;;
           esac >> $GITHUB_OUTPUT
 
   deploy:
@@ -59,7 +52,6 @@ jobs:
     environment: ${{ needs.generate-matrix.outputs.environment }}
     strategy:
       matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
-
     steps:
       - uses: actions/checkout@v3
 
@@ -71,7 +63,7 @@ jobs:
       - name: Install dependencies
         run: pip install schemachange tomli snowflake-connector-python[pandas,secure-local-storage]
 
-      - name: Install Snowflake Private Key
+      - name: Install private key
         env:
           SF_PRIVATE_KEY: ${{ secrets.SF_PRIVATE_KEY }}
         run: |
@@ -79,7 +71,7 @@ jobs:
           echo "$SF_PRIVATE_KEY" > ~/.snowflake/private_key.pem
           chmod 600 ~/.snowflake/private_key.pem
 
-      - name: Create schemachange connections.toml (secure + modern)
+      - name: Create connections.toml
         run: |
           mkdir -p ~/.schemachange
           cat > ~/.schemachange/connections.toml <<EOF
@@ -94,59 +86,72 @@ jobs:
           EOF
           chmod 600 ~/.schemachange/connections.toml
 
-      - name: Create target schema (prevents USE SCHEMA failure)
+      # ← THIS IS THE FIXED STEP (correct private key loading)
+      - name: Ensure target schema exists
         env:
-          SF_ACCOUNT:   ${{ secrets.SF_ACCOUNT }}
-          SF_USERNAME:  ${{ secrets.SF_USERNAME }}
-          SF_ROLE:      ${{ secrets.SF_ROLE }}
-          SF_WAREHOUSE: ${{ secrets.SF_WAREHOUSE }}
-          SF_DATABASE:  ${{ secrets.SF_DATABASE }}
+          SF_ACCOUNT:    ${{ secrets.SF_ACCOUNT }}
+          SF_USER:       ${{ secrets.SF_USERNAME }}
+          SF_ROLE:       ${{ secrets.SF_ROLE }}
+          SF_WAREHOUSE:  ${{ secrets.SF_WAREHOUSE }}
+          SF_DATABASE:   ${{ secrets.SF_DATABASE }}
           TARGET_SCHEMA: ${{ matrix.name }}
         run: |
-          python - <<EOF
-          import os, snowflake.connector, base64
+          python - <<'PY'
+          import os
+          import snowflake.connector
           from cryptography.hazmat.primitives import serialization
+          from cryptography.hazmat.primitives.asymmetric import rsa
 
-          pkey_bytes = open("/home/runner/.snowflake/private_key.pem", "rb").read()
-          pkey = serialization.load_pem_private_key(pkey_bytes, password=None)
+          # Load and decrypt the private key (no passphrase assumed)
+          with open("/home/runner/.snowflake/private_key.pem", "rb") as key_file:
+              private_key = serialization.load_pem_private_key(
+                  key_file.read(),
+                  password=None,   # add password=b'your-passphrase' if encrypted
+              )
+
+          # Serialize to DER format required by snowflake-connector-python
+          private_key_bytes = private_key.private_bytes(
+              encoding=serialization.Encoding.DER,
+              format=serialization.PrivateFormat.PKCS8,
+              encryption_algorithm=serialization.NoEncryption()
+          )
 
           conn = snowflake.connector.connect(
               account=os.getenv("SF_ACCOUNT"),
-              user=os.getenv("SF_USERNAME"),
-              private_key=pkey.serialize(),
+              user=os.getenv("SF_USER"),
+              private_key=private_key_bytes,
               role=os.getenv("SF_ROLE"),
               warehouse=os.getenv("SF_WAREHOUSE"),
               database=os.getenv("SF_DATABASE"),
           )
           cur = conn.cursor()
-          cur.execute(f"USE ROLE {os.getenv('SF_ROLE')}")
-          cur.execute(f"USE WAREHOUSE {os.getenv('SF_WAREHOUSE')}")
-          cur.execute(f"USE DATABASE {os.getenv('SF_DATABASE')}")
-          cur.execute(f"CREATE SCHEMA IF NOT EXISTS {os.getenv('SF_DATABASE')}.{os.getenv('TARGET_SCHEMA')}")
-          print(f"Schema {os.getenv('SF_DATABASE')}.{os.getenv('TARGET_SCHEMA')} ready")
-          cur.close()
-          conn.close()
-          EOF
+          try:
+              cur.execute(f"CREATE SCHEMA IF NOT EXISTS {os.getenv('SF_DATABASE')}.{os.getenv('TARGET_SCHEMA')}")
+              print(f"Schema {os.getenv('SF_DATABASE')}.{os.getenv('TARGET_SCHEMA')} is ready")
+          finally:
+              cur.close()
+              conn.close()
+          PY
 
-      - name: Prepare variables file
+      - name: Prepare variables
         id: parse-vars
         run: |
           VAR_FILE="${{ matrix.migrations_path }}/${{ matrix.name }}-var.yml"
-          if [ ! -f "$VAR_FILE" ]; then
-            echo "{}" > /tmp/vars.json
-          else
+          if [ -f "$VAR_FILE" ]; then
             python config/get_vars.py "$VAR_FILE" > /tmp/vars.json
+          else
+            echo "{}" > /tmp/vars.json
           fi
           echo "vars-file=/tmp/vars.json" >> $GITHUB_OUTPUT
 
-      - name: Disable per-schema schemachange-config.yml
+      - name: Disable local schemachange-config.yml
         run: |
           CONFIG="${{ matrix.migrations_path }}/config/schemachange-config.yml"
           [ -f "$CONFIG" ] && mv "$CONFIG" "$CONFIG.disabled_by_ci" || true
 
-      - name: Deploy with schemachange 4.1.0
+      - name: Deploy with schemachange
         run: |
-          VARS_JSON=$(python -c "import json,sys; print(json.dumps(json.load(open('/tmp/vars.json'))))")
+          VARS_JSON=$(python -c 'import json,sys; print(json.dumps(json.load(open("/tmp/vars.json"))))')
 
           schemachange deploy \
             --config-folder ~/.schemachange \
