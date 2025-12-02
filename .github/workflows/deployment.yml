@@ -114,7 +114,7 @@ jobs:
         run: |
           mkdir -p config
           cat > config/connections.toml <<EOF
-          [connections]
+          [connections.connections]
           account   = "${{ secrets.SF_ACCOUNT }}"
           user      = "${{ secrets.SF_USERNAME }}"
           password  = "${{ secrets.SF_PASSWORD }}"
@@ -122,7 +122,10 @@ jobs:
           warehouse = "${{ secrets.SF_WAREHOUSE }}"
           database  = "${{ secrets.SF_DATABASE }}"
           EOF
-          echo "✅ connections.toml created"
+
+          echo "Contents of connections.toml (sanitized):"
+          sed 's/password.*/password=***"/' config/connections.toml
+
 
       - name: Set Snowflake environment variables
         run: |
