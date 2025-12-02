@@ -113,26 +113,29 @@ jobs:
         run: |
           VAR_FILE="${{ matrix.migrations_path }}/${{ matrix.name }}-var.yml"
           
-          echo "Reading variables from: $VAR_FILE"
           if [ ! -f "$VAR_FILE" ]; then
-            echo "Warning: No var file found at $VAR_FILE — using empty vars"
+            echo "No var file found at $VAR_FILE — using empty vars"
             echo "vars-json={}" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           VARS_JSON=$(python - <<'PY' "$VAR_FILE"
           import sys, json, yaml
+          
           filepath = sys.argv[1]
           with open(filepath) as f:
               data = yaml.safe_load(f)
-              # schemachange expects only the variables dict, not {"variables": {...}}
-              if isinstance(data, dict) and 'variables' in data:
-                  data = data['variables']
-              print(json.dumps(data))
+          
+          # If your YAML has {"variables": { ... }}, extract the inner dict
+          if isinstance(data, dict) and "variables" in data:
+              data = data["variables"]
+          
+          # Output proper compact JSON with double quotes
+          print(json.dumps(data, separators=(',', ':')))
           PY
-          )
+                    )
 
-          echo "Parsed JSON variables: $VARS_JSON"
+          echo "Final JSON for schemachange: $VARS_JSON"
           echo "vars-json=$VARS_JSON" >> $GITHUB_OUTPUT
     
       - name: Run schemachange deploy
