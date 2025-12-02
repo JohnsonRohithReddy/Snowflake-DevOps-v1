@@ -117,9 +117,7 @@ jobs:
       - name: Deploy schema with schemachange 4.1.0
         run: |
           echo "Deploying schema: ${{ matrix.name }}"
-          echo "Root folder: ${{ matrix.migrations_path }}"
 
-          # Safely read and escape variables JSON
           VARS_JSON=$(cat /tmp/vars.json | python -c "import json, sys; print(json.dumps(json.load(sys.stdin)))")
 
           schemachange deploy \
@@ -131,4 +129,5 @@ jobs:
             --schemachange-vars "$VARS_JSON" \
             --schemachange-change-history-table "${{ secrets.SF_DATABASE }}.SCHEMACHANGE.CHANGE_HISTORY" \
             --schemachange-create-change-history-table \
-            --verbose
+            --schemachange-skip-use-statement-injection true \
+            --log-level DEBUG
