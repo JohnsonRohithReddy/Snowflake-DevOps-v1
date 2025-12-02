@@ -132,13 +132,14 @@ jobs:
           echo "Escaped JSON: $VARS_JSON"
           echo "vars-json=$VARS_JSON" >> $GITHUB_OUTPUT
    
+      # in your deploy step
       - name: Run schemachange deploy
         run: |
           echo "Deploying schema: ${{ matrix.name }}"
-          echo "Using vars: ${{ steps.parse-vars.outputs.vars-json }}"
+          echo "Using vars: '${{ steps.parse-vars.outputs.vars-json }}'"
           schemachange deploy \
             --config-folder "${{ matrix.migrations_path }}/config" \
-            --vars "${{ steps.parse-vars.outputs.vars-json }}" \
+            --vars '${{ steps.parse-vars.outputs.vars-json }}' \
             --schemachange-connections-file-path config/connections.toml \
             --connection-name connections \
             --verbose
