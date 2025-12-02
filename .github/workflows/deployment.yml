@@ -110,21 +110,20 @@ jobs:
       # 2. Create connections.toml (Key-Pair Auth + correct TOML header)
       # —————————————————————————————————————————————————————————————
       - name: Create connections.toml
-        run: |
-          mkdir -p config
-          cat > config/connections.toml <<EOF
-          [connections.connections]
-          account          = "${{ secrets.SF_ACCOUNT }}"
-          user             = "${{ secrets.SF_USERNAME }}"
-          role             = "${{ secrets.SF_ROLE }}"
-          warehouse        = "${{ secrets.SF_WAREHOUSE }}"
-          database         = "${{ secrets.SF_DATABASE }}"
-          private_key_path = "$HOME/.snowflake/private_key.pem"
-          password         = ""
+        run: >-
+          cat > config/connections.toml <<'EOF'
+          [default]
+          account = "${{ secrets.SF_ACCOUNT }}"
+          user = "${{ secrets.SF_USERNAME }}"
+          role = "${{ secrets.SF_ROLE }}"
+          warehouse = "${{ secrets.SF_WAREHOUSE }}"
+          database = "${{ secrets.SF_DATABASE }}"
+          private_key_path = "/home/runner/.snowflake/private_key.pem"
           EOF
-          chmod 600 config/connections.toml
-          echo "connections.toml created with key-pair auth"
 
+          echo "=== connections.toml content ==="
+          cat config/connections.toml
+          echo "=== end of file ==="
       # —————————————————————————————————————————————————————————————
       # 3. Parse variables — CRITICAL FIX: Strip quotes!
       # —————————————————————————————————————————————————————————————
@@ -149,12 +148,8 @@ jobs:
         env:
           VARS_JSON: ${{ steps.parse-vars.outputs.vars-json }}
         run: |
-          echo "Deploying schema: ${{ matrix.name }}"
-          echo "Using variables: $VARS_JSON"
-          
           schemachange deploy \
             --config-folder "${{ matrix.migrations_path }}/config" \
-            --vars "$VARS_JSON" \
+            --vars '$VARS_JSON' \
             --connections-file-path config/connections.toml \
-            --connection-name connections \
             --verbose
