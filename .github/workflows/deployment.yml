@@ -136,7 +136,7 @@ jobs:
           schemachange deploy \
             --root-folder "${{ matrix.migrations_path }}" \
             --config-folder "${{ matrix.migrations_path }}/config" \
-            --vars '$(cat ${{ steps.parse-vars.outputs.vars-file }})' \
+            --vars-file "${{ steps.parse-vars.outputs.vars-file }}" \
             --account "${{ secrets.SF_ACCOUNT }}" \
             --user "${{ secrets.SF_USERNAME }}" \
             --role "${{ secrets.SF_ROLE }}" \
