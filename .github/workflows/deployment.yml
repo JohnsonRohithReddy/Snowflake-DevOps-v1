@@ -130,6 +130,9 @@ jobs:
 
       - name: Run schemachange deploy
         run: |
+          echo "Deploying schema: ${{ matrix.name }}"
+          echo "Using vars file: ${{ steps.parse-vars.outputs.vars-file }}"
+
           schemachange deploy \
             --root-folder "${{ matrix.migrations_path }}" \
             --config-folder "${{ matrix.migrations_path }}/config" \
@@ -139,7 +142,7 @@ jobs:
             --role "${{ secrets.SF_ROLE }}" \
             --warehouse "${{ secrets.SF_WAREHOUSE }}" \
             --database "${{ secrets.SF_DATABASE }}" \
-            --schema "${{ matrix.name }}" \
-            --private-key-path "/home/runner/.snowflake/private_key.pem" \
-            --create-change-history-table \
-            --verbose
+            --snowflake-schema "${{ matrix.name }}" \
+            --snowflake-private-key-path "/home/runner/.snowflake/private_key.pem" \
+            --schemachange-create-change-history-table \
+            --log-level DEBUG
