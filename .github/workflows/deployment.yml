@@ -108,29 +108,27 @@ jobs:
       # —————————————————————————————————————————————————————————————
       # 3. Parse variables — CRITICAL FIX: Strip quotes!
       # —————————————————————————————————————————————————————————————
-      - name: Parse schema-specific variables
+            - name: Parse schema-specific variables
         id: parse-vars
         run: |
           VAR_FILE="${{ matrix.migrations_path }}/${{ matrix.name }}-var.yml"
           
           if [ ! -f "$VAR_FILE" ]; then
-            echo "No var file found at $VAR_FILE — using empty vars"
+            echo "No var file found → using empty vars"
             echo "vars-json={}" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # Use your clean get_vars.py script
+          # Get clean JSON from your script
           VARS_JSON=$(python config/get_vars.py "$VAR_FILE")
+          echo "Raw JSON: $VARS_JSON"
 
-          echo "Raw JSON from script: $VARS_JSON"
-
-          # CRITICAL: Escape for GitHub Actions output
-          VARS_JSON="${VARS_JSON//'%'/%25}"
-          VARS_JSON="${VARS_JSON//$'\n'/%0A}"
-          VARS_JSON="${VARS_JSON//$'\r'/%0D}"
-
-          echo "Escaped JSON: $VARS_JSON"
-          echo "vars-json=$VARS_JSON" >> $GITHUB_OUTPUT
+          # Use delimiter syntax — this is the ONLY way that survives spaces
+          {
+            echo "vars-json<<EOF"
+            echo "$VARS_JSON"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
    
       # in your deploy step
       - name: Run schemachange deploy
