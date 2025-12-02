@@ -128,13 +128,14 @@ jobs:
           # Expose the path as a step output (safe and simple)
           echo "vars-file=/tmp/vars.json" >> $GITHUB_OUTPUT
 
-      - name: Run schemachange deploy
-        run: |
-          echo "Deploying schema: ${{ matrix.name }}"
-          echo "Using vars file: ${{ steps.parse-vars.outputs.vars-file }}"
-          schemachange deploy \
-            --config-folder "${{ matrix.migrations_path }}/config" \
-            --vars "$(cat ${{ steps.parse-vars.outputs.vars-file }})" \
-            --connections-file config/connections.toml \  # ← CORRECT flag (not -file-path)
-            --connection-name default \                    # ← CORRECT name for [connections] section
-            --log-level DEBUG                             # ← Replaces --verbose
+            - name: Run schemachange deploy
+            run: |
+              echo "Deploying schema: ${{ matrix.name }}"
+              echo "Using vars file: ${{ steps.parse-vars.outputs.vars-file }}"
+    
+              schemachange deploy \
+                --config-folder "${{ matrix.migrations_path }}/config" \
+                --vars "$(cat ${{ steps.parse-vars.outputs.vars-file }})" \
+                --connections-file config/connections.toml \
+                --connection-name default \
+                --log-level DEBUG
