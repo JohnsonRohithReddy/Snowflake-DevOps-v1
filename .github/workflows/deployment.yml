@@ -141,7 +141,7 @@ jobs:
         run: |
           schemachange deploy \
             --config-folder "${{ matrix.migrations_path }}/config" \
-            --vars '$VARS_JSON' \
+            --vars $VARS_JSON \
             --connections-file-path config/connections.toml \
             --connection-name connections \
             --verbose
