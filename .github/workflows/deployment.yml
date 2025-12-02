@@ -44,6 +44,14 @@ jobs:
           EOF
           )
 
+          # Debug: log raw JSON matrix
+          echo "Matrix JSON (raw): $MATRIX_JSON"
+
+          # Debug: log each matrix entry separately
+          echo "Matrix entries:"
+          echo "$MATRIX_JSON" | python -c "import sys, json; [print(i) for i in json.loads(sys.stdin.read())['include']]"
+
+          # Set matrix for workflow
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
 
       - name: Select environment based on branch
@@ -55,6 +63,11 @@ jobs:
             main) echo "environment=sf_prod_env_cred" ;;
             *)    echo "Unsupported branch: ${{ github.ref_name }}" >&2; exit 1 ;;
           esac >> $GITHUB_OUTPUT
+
+      - name: Log selected environment
+        run: |
+          echo "✅ Selected GitHub environment for branch ${GITHUB_REF_NAME}: ${{ steps.set-env.outputs.environment }}"
+          
 
   deploy:
     needs: generate-matrix
@@ -116,23 +129,12 @@ jobs:
       # 3. Parse variables — CRITICAL FIX: Strip quotes!
       # —————————————————————————————————————————————————————————————
       - name: Parse schema-specific variables
+        id: parse-vars
         run: |
           VAR_FILE="${{ matrix.migrations_path }}/${{ matrix.name }}-var.yml"
-          
-          if [ -f "$VAR_FILE" ]; then
-            RAW_OUTPUT=$(python config/get_vars.py "$VAR_FILE")
-            echo "Raw output from get_vars.py: $RAW_OUTPUT"
-            
-            # Remove surrounding single or double quotes
-            CLEAN_JSON=$(echo "$RAW_OUTPUT" | sed "s/^'//; s/'$//; s/^\"//; s/\"$//")
-            
-            echo "Clean JSON for schemachange: $CLEAN_JSON"
-          else
-            CLEAN_JSON="{}"
-            echo "No var file found → using {}"
-          fi
-          
-          echo "VARS_JSON=$CLEAN_JSON" >> $GITHUB_ENV
+          VARS_JSON=$(python config/get_vars.py "$VAR_FILE")
+          echo "VARS_JSON=$VARS_JSON" >> $GITHUB_ENV
+          echo "Parsed variables: $VARS_JSON"
 
       # —————————————————————————————————————————————————————————————
       # 4. Run schemachange — NO QUOTES around $VARS_JSON!
