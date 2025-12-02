@@ -2,10 +2,7 @@ name: Deploy Schemas
 
 on:
   push:
-    branches:
-      - dev
-      - test
-      - main
+    branches: [dev, test, main]
   workflow_dispatch:
 
 jobs:
@@ -25,52 +22,30 @@ jobs:
       - name: Install PyYAML
         run: pip install pyyaml
 
-      - name: Debug working directory
-        run: |
-          echo "Current directory:"
-          pwd
-          echo "Files in config/"
-          ls -l config
-
       - name: Generate schema matrix
         id: set-matrix
         run: |
           CONTROLLERS=$(python config/get_controller.py)
-          echo "Schemas from get_controller.py: $CONTROLLERS"
+          echo "Schemas: $CONTROLLERS"
+          [ -z "$CONTROLLERS" ] && exit 1
 
-          if [ -z "$CONTROLLERS" ]; then
-            echo "No schemas found. Exiting."
-            exit 1
-          fi
-
-          MATRIX_JSON=$(python - <<EOF
-          import json
-          controllers = json.loads('''$CONTROLLERS''')
-          matrix = [{"name": s, "migrations_path": f"./{s}/migrations"} for s in controllers]
-          print(json.dumps({"include": matrix}))
-          EOF
-          )
-
-          echo "Matrix JSON: $MATRIX_JSON"
+          MATRIX_JSON=$(python -c "
+          import json, sys
+          controllers = json.loads('$CONTROLLERS')
+          matrix = [{'name': s, 'migrations_path': f'./{s}/migrations'} for s in controllers]
+          print(json.dumps({'include': matrix}))
+          ")
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
 
-      - name: Select environment based on branch
+      - name: Select environment
         id: set-env
         run: |
-          if [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
-            echo "environment=sf_dev_env_cred" >> $GITHUB_OUTPUT
-          elif [[ "${GITHUB_REF_NAME}" == "test" ]]; then
-            echo "environment=sf_test_env_cred" >> $GITHUB_OUTPUT
-          elif [[ "${GITHUB_REF_NAME}" == "main" ]]; then
-            echo "environment=sf_prod_env_cred" >> $GITHUB_OUTPUT
-          else
-            echo "Unsupported branch: ${GITHUB_REF_NAME}" >&2
-            exit 1
-          fi
-
-      - name: Log selected environment
-        run: |
-          echo "Selected GitHub environment for branch ${GITHUB_REF_NAME}: ${{ steps.set-env.outputs.environment }}"
+          case "${{ github.ref_name }}" in
+            dev)  echo "environment=sf_dev_env_cred" ;;
+            test) echo "environment=sf_test_env_cred" ;;
+            main) echo "environment=sf_prod_env_cred" ;;
+            *)    echo "Unsupported branch" >&2; exit 1 ;;
+          esac >> $GITHUB_OUTPUT
 
   deploy:
     needs: generate-matrix
@@ -87,60 +62,51 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install dependencies
-        run: pip install pyyaml schemachange
+      - name: Install schemachange + tomli
+        run: |
+          pip install schemachange tomli  # tomli is REQUIRED for connections.toml parsing in Python 3.10
 
-      - name: Print deployment info
+      - name: Deploying ${{ matrix.name }}
         run: |
           echo "Deploying schema: ${{ matrix.name }}"
-          echo "Migrations path: ${{ matrix.migrations_path }}"
+          echo "Path: ${{ matrix.migrations_path }}"
 
-      # Decode and write private key (supports encrypted or unencrypted)
-      - name: Write and decrypt private key
+      # Write and prepare private key (must be UNENCRYPTED PKCS#8)
+      - name: Install private key
         env:
-          SF_PRIVATE_KEY_B64: ${{ secrets.SF_PRIVATE_KEY_B64 }}  # Base64-encoded PEM
-          SF_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SF_PRIVATE_KEY_PASSPHRASE }}  # Optional
+          SF_PRIVATE_KEY_B64: ${{ secrets.SF_PRIVATE_KEY_B64 }}  # Base64-encoded UNENCRYPTED PKCS#8
         run: |
           mkdir -p ~/.snowflake
-          echo "$SF_PRIVATE_KEY_B64" | base64 -d > ~/.snowflake/private_key.pkm
-          
-          if [ -n "$SF_PRIVATE_KEY_PASSPHRASE" ]; then
-            echo "Decrypting encrypted private key..."
-            openssl rsa -in ~/.snowflake/private_key.pkm -out ~/.snowflake/private_key.pem -passin pass:"$SF_PRIVATE_KEY_PASSPHRASE"
-          else
-            echo "Using unencrypted private key"
-            mv ~/.snowflake/private_key.pkm ~/.snowflake/private_key.pem
-          fi
-          
+          echo "$SF_PRIVATE_KEY_B64" | base64 -d > ~/.snowflake/private_key.p8
+          openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt \
+            -in ~/.snowflake/private_key.p8 \
+            -out ~/.snowflake/private_key.pem
           chmod 600 ~/.snowflake/private_key.pem
-          echo "Private key ready at ~/.snowflake/private_key.pem"
+          echo "Private key installed and converted"
 
-      # Create connections.toml with key-pair auth
-      - name: Create connections.toml (Key-Pair Auth)
+      # CRITICAL: Use correct TOML syntax that schemachange 4.x understands
+      - name: Create connections.toml (Correct TOML for schemachange 4.x)
         run: |
           mkdir -p config
           cat > config/connections.toml <<EOF
-          [connections]
-          account   = "${{ secrets.SF_ACCOUNT }}"
-          user      = "${{ secrets.SF_USERNAME }}"
-          role      = "${{ secrets.SF_ROLE }}"
+          [connections.connections]
+          account = "${{ secrets.SF_ACCOUNT }}"
+          user = "${{ secrets.SF_USERNAME }}"
+          role = "${{ secrets.SF_ROLE }}"
           warehouse = "${{ secrets.SF_WAREHOUSE }}"
-          database  = "${{ secrets.SF_DATABASE }}"
-          authenticator = "snowflake"
+          database = "${{ secrets.SF_DATABASE }}"
           private_key_path = "$HOME/.snowflake/private_key.pem"
+
+          # Optional: explicitly disable password
+          password = ""
           EOF
-          echo "connections.toml created with key-pair authentication"
 
-      - name: Set environment variables (for debugging, optional)
-        run: |
-          echo "SF_ACCOUNT=${{ secrets.SF_ACCOUNT }}" >> $GITHUB_ENV
-          echo "SF_USERNAME=${{ secrets.SF_USERNAME }}" >> $GITHUB_ENV
-          echo "SF_ROLE=${{ secrets.SF_ROLE }}" >> $GITHUB_ENV
-          echo "SF_WAREHOUSE=${{ secrets.SF_WAREHOUSE }}" >> $GITHUB_ENV
-          echo "SF_DATABASE=${{ secrets.SF_DATABASE }}" >> $GITHUB_ENV
+          echo "connections.toml created:"
+          cat config/connections.toml
+          chmod 600 config/connections.toml
 
-      - name: Parse schema-specific variables
-        id: parse-vars
+      - name: Parse variables
+        id: vars
         run: |
           VAR_FILE="${{ matrix.migrations_path }}/${{ matrix.name }}-var.yml"
           if [ -f "$VAR_FILE" ]; then
@@ -149,13 +115,12 @@ jobs:
             VARS_JSON="{}"
           fi
           echo "VARS_JSON=$VARS_JSON" >> $GITHUB_ENV
-          echo "Parsed variables: $VARS_JSON"
 
-      - name: Run schemachange deploy
+      - name: Deploy with schemachange
         run: |
           schemachange deploy \
             --config-folder "${{ matrix.migrations_path }}/config" \
-            --vars "$VARS_JSON" \
+            --vars '$VARS_JSON' \
             --connections-file-path config/connections.toml \
             --connection-name connections \
             --verbose
