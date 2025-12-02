@@ -1,3 +1,5 @@
 controllers:
   - bronze
+  - silver
+  - gold
   
