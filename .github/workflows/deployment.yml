@@ -126,9 +126,9 @@ jobs:
           # Append passphrase only if provided (do not echo it)
           if [ -n "${SF_PRIVATE_KEY_PASSPHRASE:-}" ]; then
             cat >> config/connections.toml <<EOF
-private_key_passphrase = "${SF_PRIVATE_KEY_PASSPHRASE}"
-EOF
-          fi
+            private_key_passphrase = "${SF_PRIVATE_KEY_PASSPHRASE}"
+            EOF
+                      fi
 
           chmod 600 config/connections.toml
           echo "✅ config/connections.toml created"
