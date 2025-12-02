@@ -108,19 +108,32 @@ jobs:
       # —————————————————————————————————————————————————————————————
       # 3. Parse variables — CRITICAL FIX: Strip quotes!
       # —————————————————————————————————————————————————————————————
-      - name: Parse schema-specific variables
+            - name: Parse schema-specific variables
         id: parse-vars
         run: |
           VAR_FILE="${{ matrix.migrations_path }}/${{ matrix.name }}-var.yml"
-          VARS_JSON=$(python - <<PY
+          
+          echo "Reading variables from: $VAR_FILE"
+          if [ ! -f "$VAR_FILE" ]; then
+            echo "Warning: No var file found at $VAR_FILE — using empty vars"
+            echo "vars-json={}" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          VARS_JSON=$(python - <<'PY' "$VAR_FILE"
           import sys, json, yaml
-          f = sys.argv[1]
-          data = yaml.safe_load(open(f))
-          print(json.dumps(data, separators=(',',':')))
+          filepath = sys.argv[1]
+          with open(filepath) as f:
+              data = yaml.safe_load(f)
+              # schemachange expects only the variables dict, not {"variables": {...}}
+              if isinstance(data, dict) and 'variables' in data:
+                  data = data['variables']
+              print(json.dumps(data))
           PY
-                "$VAR_FILE")
-                # store as step output
-                echo "vars-json=$VARS_JSON" >> $GITHUB_OUTPUT
+          )
+
+          echo "Parsed JSON variables: $VARS_JSON"
+          echo "vars-json=$VARS_JSON" >> $GITHUB_OUTPUT
     
       - name: Run schemachange deploy
         run: |
