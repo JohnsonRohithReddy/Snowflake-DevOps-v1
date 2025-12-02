@@ -94,12 +94,12 @@ jobs:
         run: |
           mkdir -p config
           cat > config/connections.toml <<EOF  # ← Removed single quotes here
-          [connections.default]  # This defines the DEFAULT connection
-          account = "${{ secrets.SF_ACCOUNT }}"
-          user = "${{ secrets.SF_USERNAME }}"
-          role = "${{ secrets.SF_ROLE }}"
+          [connections]  # This defines the DEFAULT connection
+          account   = "${{ secrets.SF_ACCOUNT }}"
+          user      = "${{ secrets.SF_USERNAME }}"
+          role      = "${{ secrets.SF_ROLE }}"
           warehouse = "${{ secrets.SF_WAREHOUSE }}"
-          database = "${{ secrets.SF_DATABASE }}"
+          database  = "${{ secrets.SF_DATABASE }}"
           private_key_file = "/home/runner/.snowflake/private_key.pem"
           EOF
           echo "Created connections file at config/connections.toml"
@@ -136,6 +136,6 @@ jobs:
           schemachange deploy \
             --config-folder "${{ matrix.migrations_path }}/config" \
             --vars "$(cat ${{ steps.parse-vars.outputs.vars-file }})" \
-            --connections-file ./config/connections.toml\
+            --connections-file-path config/connections.toml \
             --connection-name default \
             --log-level DEBUG
