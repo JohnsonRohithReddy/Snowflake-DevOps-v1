@@ -55,7 +55,7 @@ jobs:
       - name: Log selected environment
         run: |
           echo "✅ Selected GitHub environment for branch ${GITHUB_REF_NAME}: ${{ steps.set-env.outputs.environment }}"
-         
+        
   deploy:
     needs: generate-matrix
     runs-on: ubuntu-latest
@@ -91,18 +91,20 @@ jobs:
       # 2. Create connections.toml (Key-Pair Auth + correct TOML header)
       # —————————————————————————————————————————————————————————————
       - name: Create connections.toml
-        run: >-
-          cat > config/connections.toml <<'EOF'
-          [connections]
+        run: |
+          mkdir -p config
+          cat > config/connections.toml <<EOF
+          [connections.connections]
           account = "${{ secrets.SF_ACCOUNT }}"
           user = "${{ secrets.SF_USERNAME }}"
           role = "${{ secrets.SF_ROLE }}"
           warehouse = "${{ secrets.SF_WAREHOUSE }}"
           database = "${{ secrets.SF_DATABASE }}"
-          private_key_path = "/home/runner/.snowflake/private_key.pem"
+          private_key_path = "$HOME/.snowflake/private_key.pem"
+          password = ""
           EOF
-          echo "connections.toml created:"
-          cat config/connections.toml
+          chmod 600 config/connections.toml
+          echo "connections.toml created with key-pair auth"
       # —————————————————————————————————————————————————————————————
       # 3. Parse variables — CRITICAL FIX: Strip quotes!
       # —————————————————————————————————————————————————————————————
@@ -110,31 +112,23 @@ jobs:
         id: parse-vars
         run: |
           VAR_FILE="${{ matrix.migrations_path }}/${{ matrix.name }}-var.yml"
-          VARS_JSON=$(python config/get_vars.py "$VAR_FILE")
+          # convert YAML -> compact JSON (single line)
+          python - <<PY > /tmp/vars.json
+          import sys, json, yaml
+          f = sys.argv[1]
+          data = yaml.safe_load(open(f))
+          print(json.dumps(data, separators=(',',':')))
+          PY
+                /bin/ls -l /tmp/vars.json
+                echo "Wrote vars to /tmp/vars.json"
           
-          # Debug
-          echo "Raw VARS_JSON from script:"
-          echo "$VARS_JSON"
-          
-          # Validate it's real JSON
-          echo "$VARS_JSON" | python -c "import sys,json; json.load(sys.stdin)"
-          
-          # Escape for GitHub Actions output (handles newlines, quotes, etc.)
-          delimited="${VARS_JSON//$'\n'/\\n}"
-          echo "vars-json=$delimited" >> $GITHUB_OUTPUT
-      # —————————————————————————————————————————————————————————————
-      # 4. Run schemachange — NO QUOTES around $VARS_JSON!
-      # —————————————————————————————————————————————————————————————
       - name: Run schemachange deploy
-        env:
-          VARS_JSON: ${{ steps.parse-vars.outputs.vars-json }}
         run: |
           echo "Deploying schema: ${{ matrix.name }}"
-          echo "Using variables: $VARS_JSON"
-
+          echo "Vars preview: $(head -c 200 /tmp/vars.json)..."   # debug
           schemachange deploy \
             --config-folder "${{ matrix.migrations_path }}/config" \
-            --vars '$VARS_JSON' \
-            --connections-file-path config/connections.toml \
+            --vars "$(cat /tmp/vars.json)" \
+            --schemachange-connections-file-path config/connections.toml \
             --connection-name connections \
             --verbose
