@@ -96,7 +96,7 @@ jobs:
           python-version: "3.10"
 
       - name: Install dependencies
-        run: pip install pyyaml schemachange tomli
+        run: pip install pyyaml schemachange
 
       - name: Print environment details
         run: |
@@ -114,7 +114,7 @@ jobs:
         run: |
           mkdir -p config
           cat > config/connections.toml <<EOF
-          [connections.connections]
+          [connections]
           account   = "${{ secrets.SF_ACCOUNT }}"
           user      = "${{ secrets.SF_USERNAME }}"
           password  = "${{ secrets.SF_PASSWORD }}"
@@ -122,11 +122,7 @@ jobs:
           warehouse = "${{ secrets.SF_WAREHOUSE }}"
           database  = "${{ secrets.SF_DATABASE }}"
           EOF
-          chmod 600 config/connections.toml
-          echo "✅ connections.toml created and permissions set to 600"
-          echo "Contents of connections.toml (sanitized):"
-          sed 's/password.*/password=***"/' config/connections.toml
-
+          echo "✅ connections.toml created"
 
       - name: Set Snowflake environment variables
         run: |
