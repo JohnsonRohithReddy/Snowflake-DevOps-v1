@@ -94,7 +94,7 @@ jobs:
         run: |
           mkdir -p config
           cat > config/connections.toml <<EOF
-          [connections.connections]
+          [connections]
           account = "${{ secrets.SF_ACCOUNT }}"
           user = "${{ secrets.SF_USERNAME }}"
           role = "${{ secrets.SF_ROLE }}"
