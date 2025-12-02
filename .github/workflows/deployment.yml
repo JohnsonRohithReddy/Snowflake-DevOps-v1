@@ -28,33 +28,36 @@ jobs:
       - name: Generate schema matrix
         id: set-matrix
         run: |
+          set -euo pipefail
+
+          # Get controllers JSON (expecting a JSON array: ["a","b","c"])
           CONTROLLERS=$(python config/get_controller.py)
           echo "Schemas found: $CONTROLLERS"
-          [ -z "$CONTROLLERS" ] && echo "No schemas!" && exit 1
+          if [ -z "${CONTROLLERS}" ] || [ "${CONTROLLERS}" = "[]" ]; then
+            echo "❌ No schemas found. Exiting."
+            exit 1
+          fi
 
-          MATRIX_JSON=$(python - <<'PY'
-          import json, sys
-          controllers = json.loads(sys.argv[1])
-          matrix = [{"name": s, "migrations_path": f"./{s}/migrations"} for s in controllers]
-          print(json.dumps({"include": matrix}))
-          PY
-          "$CONTROLLERS"
-          )
+          # Use python -c and pass the JSON as a single argument to avoid heredoc interpolation issues
+          MATRIX_JSON=$(python -c 'import json,sys
+json_str = sys.argv[1]
+controllers = json.loads(json_str)
+matrix = [{"name": s, "migrations_path": f"./{s}/migrations"} for s in controllers]
+print(json.dumps({"include": matrix}))' "$CONTROLLERS")
+
+          echo "Matrix JSON: $MATRIX_JSON"
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
 
       - name: Select environment
         id: set-env
         run: |
           case "${{ github.ref_name }}" in
-            dev)  echo "environment=sf_dev_env_cred" ;&quot;&quot;
-            test) echo "environment=sf_test_env_cred" ;&quot;&quot;
-            main) echo "environment=sf_prod_env_cred" ;&quot;&quot;
-            *)    echo "Unsupported branch" >&2; exit 1 ;;
-          esac >> $GITHUB_OUTPUT
+            dev)  echo "environment=sf_dev_env_cred" >> $GITHUB_OUTPUT ;;
+            test) echo "environment=sf_test_env_cred" >> $GITHUB_OUTPUT ;;
+            main) echo "environment=sf_prod_env_cred" >> $GITHUB_OUTPUT ;;
+            *)    echo "Unsupported branch ${GITHUB_REF_NAME}" >&2; exit 1 ;;
+          esac
 
-  # ==============================================
-  # DEPLOY JOB — Key-Pair Auth + Correct --vars
-  # ==============================================
   deploy:
     needs: generate-matrix
     runs-on: ubuntu-latest
@@ -74,77 +77,91 @@ jobs:
         run: |
           pip install schemachange tomli pyyaml
 
-      - name: Deploying ${{ matrix.name }}
+      - name: Deploying info (non-sensitive)
         run: |
           echo "Deploying schema: ${{ matrix.name }}"
           echo "Migrations path: ${{ matrix.migrations_path }}"
+          echo "Using private-key authentication (secret masked)."
 
-      # 1. Install your existing private key (no conversion needed)
+      # Install private key from SF_PRIVATE_KEY secret (accepts raw PEM or \n-escaped PEM)
       - name: Install Snowflake Private Key
         env:
           SF_PRIVATE_KEY: ${{ secrets.SF_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          mkdir -p ~/.snowflake
-          # write the secret content to a file (handle both multi-line and \n-escaped)
+
           if [ -z "${SF_PRIVATE_KEY:-}" ]; then
-            echo "❌ SF_PRIVATE_KEY secret is empty or missing" >&2
+            echo "❌ SF_PRIVATE_KEY secret is missing or empty" >&2
             exit 1
           fi
-          # preserve newlines: printf '%b' handles literal \n sequences too
+
+          mkdir -p ~/.snowflake
+          # write secret preserving newlines and handling \n-escaped values
           printf '%b' "$SF_PRIVATE_KEY" > ~/.snowflake/private_key.pem
-          sed -i 's/\r$//' ~/.snowflake/private_key.pem   # Remove CR if present
+          sed -i 's/\r$//' ~/.snowflake/private_key.pem || true
           chmod 600 ~/.snowflake/private_key.pem
-          echo "Private key installed at ~/.snowflake/private_key.pem"
+          echo "✅ Private key installed at ~/.snowflake/private_key.pem"
+          echo "Private key first line (for sanity):"
+          head -n 1 ~/.snowflake/private_key.pem
 
-      # 2. Create connections.toml — CORRECT header for schemachange 4.x
+      # Create connections.toml with private_key_path (schemachange 4.x format)
       - name: Create connections.toml
+        env:
+          SF_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SF_PRIVATE_KEY_PASSPHRASE || '' }}
         run: |
+          set -euo pipefail
           mkdir -p config
-          cat > config/connections.toml <<EOF
-          [connections.connections]
-          account          = "${{ secrets.SF_ACCOUNT }}"
-          user             = "${{ secrets.SF_USERNAME }}"
-          role             = "${{ secrets.SF_ROLE }}"
-          warehouse        = "${{ secrets.SF_WAREHOUSE }}"
-          database         = "${{ secrets.SF_DATABASE }}"
-          private_key_path = "$HOME/.snowflake/private_key.pem"
-          password         = ""
-          EOF
-          chmod 600 config/connections.toml
-          echo "connections.toml created successfully"
 
-      # 3. Parse variables — 100% correct using your get_vars.py
+          cat > config/connections.toml <<EOF
+[connections.connections]
+account          = "${{ secrets.SF_ACCOUNT }}"
+user             = "${{ secrets.SF_USERNAME }}"
+role             = "${{ secrets.SF_ROLE }}"
+warehouse        = "${{ secrets.SF_WAREHOUSE }}"
+database         = "${{ secrets.SF_DATABASE }}"
+private_key_path = "$HOME/.snowflake/private_key.pem"
+password         = ""
+EOF
+
+          # Append passphrase only if provided (do not echo it)
+          if [ -n "${SF_PRIVATE_KEY_PASSPHRASE:-}" ]; then
+            cat >> config/connections.toml <<EOF
+private_key_passphrase = "${SF_PRIVATE_KEY_PASSPHRASE}"
+EOF
+          fi
+
+          chmod 600 config/connections.toml
+          echo "✅ config/connections.toml created"
+
+      # Parse schema-specific variables into VARS_JSON environment variable (as one-line JSON)
       - name: Parse schema variables
         id: parse-vars
         run: |
+          set -euo pipefail
           VAR_FILE="${{ matrix.migrations_path }}/${{ matrix.name }}-var.yml"
-          
           if [ ! -f "$VAR_FILE" ]; then
-            echo "No var file found → using empty vars"
+            echo "No var file found for ${{ matrix.name }} — using {}"
             echo "VARS_JSON={}" >> $GITHUB_ENV
           else
-            # This calls your script and gets clean JSON string
             VARS_JSON=$(python config/get_vars.py "$VAR_FILE")
-            # Sanity check: ensure valid JSON (quick test)
-            python -c "import json,sys; json.loads(sys.argv[1])" "$VARS_JSON" || { echo '❌ get_vars.py returned invalid JSON' >&2; exit 1; }
+            # sanity validate JSON
+            python -c "import json,sys; json.loads(sys.argv[1])" "$VARS_JSON" || { echo '❌ get_vars.py output invalid JSON' >&2; exit 1; }
             echo "VARS_JSON=$VARS_JSON" >> $GITHUB_ENV
-            echo "Variables loaded"
+            echo "Parsed vars for ${{ matrix.name }}"
           fi
 
-      # 4. Deploy — PASS THE JSON AS A SINGLE QUOTED ARGUMENT
+      # Run schemachange passing vars as a single quoted JSON argument
       - name: Run schemachange deploy
         run: |
           set -euo pipefail
 
-          # Use VARS_JSON from environment (set by previous step) or default to {}
+          # Take the VARS_JSON set in previous step or default to {}
           if [ -z "${VARS_JSON:-}" ] || [ "${VARS_JSON}" = "" ]; then
             VARS='{}'
           else
             VARS="$VARS_JSON"
           fi
 
-          # optional debug (non-sensitive): show length of VARS
           echo "Using vars length: $(printf '%s' "$VARS" | wc -c)"
 
           schemachange deploy \
