@@ -128,14 +128,18 @@ jobs:
           # Expose the path as a step output (safe and simple)
           echo "vars-file=/tmp/vars.json" >> $GITHUB_OUTPUT
 
-      - name: Run schemachange deploy
+            - name: Run schemachange deploy
         run: |
-          echo "Deploying schema: ${{ matrix.name }}"
-          echo "Using vars file: ${{ steps.parse-vars.outputs.vars-file }}"
-
           schemachange deploy \
+            --root-folder "${{ matrix.migrations_path }}" \
             --config-folder "${{ matrix.migrations_path }}/config" \
-            --vars "$(cat ${{ steps.parse-vars.outputs.vars-file }})" \
-            --connections-file-path config/connections.toml \
-            --connection-name default \
-            --log-level DEBUG
+            --vars '$(cat ${{ steps.parse-vars.outputs.vars-file }})' \
+            --account "${{ secrets.SF_ACCOUNT }}" \
+            --user "${{ secrets.SF_USERNAME }}" \
+            --role "${{ secrets.SF_ROLE }}" \
+            --warehouse "${{ secrets.SF_WAREHOUSE }}" \
+            --database "${{ secrets.SF_DATABASE }}" \
+            --schema "${{ matrix.name }}" \
+            --private-key-path "/home/runner/.snowflake/private_key.pem" \
+            --create-change-history-table \
+            --verbose
