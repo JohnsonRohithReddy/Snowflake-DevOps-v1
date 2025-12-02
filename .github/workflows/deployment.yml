@@ -1,3 +1,61 @@
+name: Deploy Schemas
+
+on:
+  push:
+    branches:
+      - dev
+      - test
+      - main
+  workflow_dispatch:
+
+jobs:
+  generate-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      environment: ${{ steps.set-env.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Generate schema matrix
+        id: set-matrix
+        run: |
+          CONTROLLERS=$(python config/get_controller.py)
+          echo "Schemas from get_controller.py: $CONTROLLERS"
+
+          if [ -z "$CONTROLLERS" ]; then
+            echo "No schemas found. Exiting."
+            exit 1
+          fi
+
+          MATRIX_JSON=$(python - <<EOF
+          import json
+          controllers = json.loads('''$CONTROLLERS''')
+          matrix = [{"name": s, "migrations_path": f"./{s}/migrations"} for s in controllers]
+          print(json.dumps({"include": matrix}))
+          EOF
+          )
+
+          echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+
+      - name: Select environment based on branch
+        id: set-env
+        run: |
+          case "${{ github.ref_name }}" in
+            dev)  echo "environment=sf_dev_env_cred" ;;
+            test) echo "environment=sf_test_env_cred" ;;
+            main) echo "environment=sf_prod_env_cred" ;;
+            *)    echo "Unsupported branch: ${{ github.ref_name }}" >&2; exit 1 ;;
+          esac >> $GITHUB_OUTPUT
+
   deploy:
     needs: generate-matrix
     runs-on: ubuntu-latest
@@ -13,61 +71,77 @@
         with:
           python-version: "3.10"
 
-      - name: Install schemachange + tomli
-        run: pip install schemachange tomli
+      - name: Install dependencies
+        run: |
+          pip install schemachange tomli  # tomli is REQUIRED for connections.toml parsing
 
-      - name: Show deployment info
+      - name: Deploying ${{ matrix.name }}
         run: |
           echo "Deploying schema: ${{ matrix.name }}"
           echo "Migrations path: ${{ matrix.migrations_path }}"
 
-      # Private key — already perfect
+      # —————————————————————————————————————————————————————————————
+      # 1. Install Private Key (your existing key works perfectly)
+      # —————————————————————————————————————————————————————————————
       - name: Install Snowflake Private Key
         env:
-          SF_PRIVATE_KEY: ${{ secrets.SF_PRIVATE_KEY }}
+          SF_PRIVATE_KEY:: ${{ secrets.SF_PRIVATE_KEY }}  # Full PEM with BEGIN/END
         run: |
           mkdir -p ~/.snowflake
           echo "$SF_PRIVATE_KEY" > ~/.snowflake/private_key.pem
-          sed -i 's/\r$//' ~/.snowflake/private_key.pem
+          sed -i 's/\r$//' ~/.snowflake/private_key.pem  # Remove Windows line endings
           chmod 600 ~/.snowflake/private_key.pem
-          echo "Private key installed"
+          echo "Private key installed successfully"
 
-      # connections.toml — correct
+      # —————————————————————————————————————————————————————————————
+      # 2. Create connections.toml (Key-Pair Auth + correct TOML header)
+      # —————————————————————————————————————————————————————————————
       - name: Create connections.toml
         run: |
           mkdir -p config
           cat > config/connections.toml <<EOF
           [connections.connections]
-          account   = "${{ secrets.SF_ACCOUNT }}"
-          user      = "${{ secrets.SF_USERNAME }}"
-          role      = "${{ secrets.SF_ROLE }}"
-          warehouse = "${{ secrets.SF_WAREHOUSE }}"
-          database  = "${{ secrets.SF_DATABASE }}"
+          account          = "${{ secrets.SF_ACCOUNT }}"
+          user             = "${{ secrets.SF_USERNAME }}"
+          role             = "${{ secrets.SF_ROLE }}"
+          warehouse        = "${{ secrets.SF_WAREHOUSE }}"
+          database         = "${{ secrets.SF_DATABASE }}"
           private_key_path = "$HOME/.snowflake/private_key.pem"
-          password = ""
+          password         = ""
           EOF
           chmod 600 config/connections.toml
+          echo "connections.toml created with key-pair auth"
 
-      # Parse variables correctly
-      - name: Parse schema variables
+      # —————————————————————————————————————————————————————————————
+      # 3. Parse variables — CRITICAL FIX: Strip quotes!
+      # —————————————————————————————————————————————————————————————
+      - name: Parse schema-specific variables
         run: |
           VAR_FILE="${{ matrix.migrations_path }}/${{ matrix.name }}-var.yml"
+          
           if [ -f "$VAR_FILE" ]; then
-            VARS_JSON=$(python config/get_vars.py "$VAR_FILE")
-            echo "Parsed variables: $VARS_JSON"
+            RAW_OUTPUT=$(python config/get_vars.py "$VAR_FILE")
+            echo "Raw output from get_vars.py: $RAW_OUTPUT"
+            
+            # Remove surrounding single or double quotes
+            CLEAN_JSON=$(echo "$RAW_OUTPUT" | sed "s/^'//; s/'$//; s/^\"//; s/\"$//")
+            
+            echo "Clean JSON for schemachange: $CLEAN_JSON"
           else
-            VARS_JSON="{}"
-            echo "No var file → using empty vars"
+            CLEAN_JSON="{}"
+            echo "No var file found → using {}"
           fi
-          # Export for next step
-          echo "VARS_JSON=$VARS_JSON" >> $GITHUB_ENV
+          
+          echo "VARS_JSON=$CLEAN_JSON" >> $GITHUB_ENV
 
-      # FINAL STEP — NO QUOTES AROUND $VARS_JSON !
+      # —————————————————————————————————————————————————————————————
+      # 4. Run schemachange — NO QUOTES around $VARS_JSON!
+      # —————————————————————————————————————————————————————————————
       - name: Run schemachange deploy
         run: |
           schemachange deploy \
             --config-folder "${{ matrix.migrations_path }}/config" \
-            --vars $VARS_JSON \           # ← NO QUOTES HERE!
+            --vars $VARS_JSON \
             --connections-file-path config/connections.toml \
             --connection-name connections \
             --verbose
