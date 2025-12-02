@@ -128,7 +128,7 @@ jobs:
           # Expose the path as a step output (safe and simple)
           echo "vars-file=/tmp/vars.json" >> $GITHUB_OUTPUT
 
-            - name: Run schemachange deploy
+      - name: Run schemachange deploy
         run: |
           schemachange deploy \
             --root-folder "${{ matrix.migrations_path }}" \
